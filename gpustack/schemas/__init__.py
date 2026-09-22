@@ -99,6 +99,16 @@ from gpustack.schemas.resource_events import (  # noqa: F401  table registration
     ResourceEvent,
     ResourceEventArchive,
 )
+from gpustack.schemas.billing import (  # noqa: F401  table registration
+    BillingSession,
+    Invoice,
+    InvoiceItem,
+    LedgerEntry,
+    PriceBookEntry,
+    Quota,
+    Redemption,
+    Wallet,
+)
 from gpustack.schemas.common import PaginatedList
 from gpustack.schemas.benchmark import (
     ModelInstanceRuntimeInfo,
