@@ -56,6 +56,10 @@ from gpustack.schemas.billing import (
     Wallet,
 )
 from gpustack.server.billing_pricing import as_utc
+from gpustack.server.billing_enforcement import (
+    resume_keys_for_wallet,
+    suspend_keys_for_wallet,
+)
 from gpustack.server.billing_rater import BillingMode, billing_mode
 from gpustack.server.db import async_session
 
@@ -146,10 +150,13 @@ async def credit_wallet(
 async def suspend_wallet(
     session: AsyncSession, principal_id: int, *, commit: bool = False
 ) -> Wallet:
-    """Flag a wallet whose balance ran dry.
+    """Flag a wallet whose balance ran dry, and refuse its keys.
 
-    The flag is what WP5's reconciler turns into rejected API keys; setting it
-    here keeps the money decision and the access decision in one place.
+    Two writes that must travel together. The wallet flag is what the settlement
+    side reads; the key flag is what the gateway's local auth table is built
+    from. Suspending only the wallet would leave the plugin verifying the key
+    locally — and a locally-verified key never reaches ``/token-auth``, so the
+    org would keep being served until some later reconcile dropped it.
     """
     wallet = await get_or_create_wallet(session, principal_id)
     if not wallet.suspended:
@@ -157,6 +164,9 @@ async def suspend_wallet(
         wallet.suspended_at = _utcnow()
         session.add(wallet)
         await session.flush()
+    # Propagated even when the wallet was already flagged: a key created after
+    # the suspension would otherwise never be flagged, and this pass is cheap.
+    await suspend_keys_for_wallet(session, principal_id, commit=False)
     if commit:
         await session.commit()
     return wallet
@@ -207,6 +217,10 @@ async def resume_wallet_if_funded(
     wallet.suspended_at = None
     session.add(wallet)
     await session.flush()
+    # Clearing the wallet without clearing its keys would leave the tenant
+    # paying but still refused at the gateway, which is the complaint that
+    # reaches an operator first.
+    await resume_keys_for_wallet(session, principal_id, commit=False)
     if commit:
         await session.commit()
     return True

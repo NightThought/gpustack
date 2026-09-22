@@ -39,6 +39,7 @@ from gpustack.routes.model_routes import (
     _my_model_visibility_sql,
 )
 from gpustack.server.db import async_session
+from gpustack.server.billing_enforcement import assert_billing_active
 from gpustack.server.deps import SessionDep, CurrentUserDep, TenantContextDep
 from gpustack.server.services import (
     ModelInstanceService,
@@ -207,6 +208,17 @@ async def proxy_request_by_model(
                 message="Model not found",
                 is_openai_exception=True,
             )
+        # Billing suspension, before any routing work: the in-process path never
+        # passes through the gateway's key table, so this is its only chance to
+        # refuse an org whose wallet ran dry — and it must refuse for the same
+        # reason and with the same status the gateway path does.
+        await assert_billing_active(
+            session,
+            api_key=getattr(request.state, "api_key", None),
+            user=user,
+            model_name=model_name,
+            openai_shaped=True,
+        )
         model_route_service = ModelRouteService(session)
         route_targets: List[RouteTargetResolution] = (
             await model_route_service.resolve_route_targets(model_name)

@@ -343,6 +343,13 @@ async def build_local_auth_tables(
       ``APIKeyService.get_by_access_key`` applies the same predicate. A key the
       server would refuse on the fallback path must not be one the gateway
       still verifies on its own.
+    * **billing-suspended keys** (``api_keys.suspended``). Same argument, and
+      the same shape: the server answers 402 for them on ``/token-auth``
+      (``billing_enforcement.assert_billing_active``), so the plugin must not
+      verify them locally -- a locally-verified key never reaches the server,
+      and an org that ran out of money would keep being served until the
+      digest expired. Exclusion needs no plugin change, which is why it is
+      exclusion rather than a flag on the entry.
     * **keys that have already expired.** Not for correctness -- ``exp`` rides
       along and both the plugin and the server reject them anyway -- but for
       the budget below. The cap drops rows in id order, i.e. it keeps the
@@ -385,6 +392,9 @@ async def build_local_auth_tables(
         .join(Principal, Principal.id == ApiKey.user_id)
         .where(
             ApiKey.deleted_at.is_(None),
+            # A suspended key is refused by the server, so it must not be
+            # verifiable here -- see the docstring's exclusion list.
+            ApiKey.suspended.is_(False),
             or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
             # Belongs in one of the two tables. Stated here as well as in the
             # loop so ``limit`` counts only rows that will be used -- otherwise

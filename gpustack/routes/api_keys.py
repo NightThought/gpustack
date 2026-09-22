@@ -20,6 +20,7 @@ from gpustack.security import (
     new_secret_key_digest,
 )
 from gpustack.server.db import async_session
+from gpustack.server.billing_enforcement import inherited_suspension
 from gpustack.server.deps import SessionDep, TenantContextDep
 from gpustack.schemas.api_keys import (
     ApiKey,
@@ -212,6 +213,14 @@ async def create_api_key(
     if key_in.expires_in and key_in.expires_in > 0:
         expires_at = current + timedelta(seconds=key_in.expires_in)
 
+    # A key minted while its wallet is suspended is born suspended. Without this
+    # the new key would be unflagged — the suspension pass already ran over the
+    # keys that existed at the time — and an org in arrears could keep serving
+    # traffic by issuing itself a fresh credential.
+    suspension_reason = await inherited_suspension(
+        session, owner_principal_id=target_org_id, user_id=user.id
+    )
+
     try:
         api_key = ApiKey(
             name=key_in.name,
@@ -234,6 +243,8 @@ async def create_api_key(
             allowed_model_names=key_in.allowed_model_names,
             is_custom=key_in.custom is not None,
             scope=key_in.scope,
+            suspended=suspension_reason is not None,
+            suspension_reason=suspension_reason,
         )
         api_key = await ApiKey.create(session, api_key)
     except Exception as e:

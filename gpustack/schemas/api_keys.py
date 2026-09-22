@@ -101,6 +101,22 @@ class ApiKey(ApiKeyBase, BaseModelMixin, table=True):
     )
     is_custom: bool = Field(default=False, nullable=False)
 
+    # Billing suspension. Server-set only — deliberately absent from
+    # ``ApiKeyUpdate`` / ``ApiKeyCreate``, because a key that could unsuspend
+    # itself through the API it is suspended from is not a suspension. Set when
+    # the owning wallet runs dry (``server.billing_enforcement``), cleared when
+    # the arrears are covered.
+    #
+    # A suspended key is excluded from the gateway's local auth tables, so the
+    # gateway forwards the request to ``/token-auth`` and gets a 402 there —
+    # the same shape as a deactivated principal, and for the same reason: the
+    # two paths must refuse the same credentials.
+    suspended: bool = Field(default=False, nullable=False)
+    # Why, for the tenant and the operator. Prefixed with the subsystem that
+    # set it (``billing:``) so clearing a billing suspension never clears one
+    # an admin imposed for another reason.
+    suspension_reason: Optional[str] = Field(default=None, max_length=255)
+
     @property
     def user_name(self) -> Optional[str]:
         return self.user.name if self.user else None
@@ -155,6 +171,10 @@ class ApiKeyPublic(ApiKeyBase):
     value: Optional[str] = None  # only available when creating
     masked_value: Optional[str] = None  # partial characters for identification
     is_custom: bool
+    # Read-only: see ``ApiKey.suspended``. Surfaced so a tenant can tell "your
+    # balance ran out" from "this key was revoked".
+    suspended: bool = False
+    suspension_reason: Optional[str] = None
     # The owning Org. Server-set on create from the caller's tenant
     # context, intentionally outside ApiKeyCreate / Update. ``None``
     # marks an admin-created "All" mode key with no tenant pinning —

@@ -92,6 +92,12 @@ ForbiddenException = http_exception_factory(
 InvalidException = http_exception_factory(
     HTTP_422_UNPROCESSABLE, "Invalid", "Invalid input"
 )
+# Distinct from 403 on purpose: a suspended-for-arrears credential is valid and
+# its owner is authorized, the account simply owes money. A tenant that gets 403
+# rotates keys; one that gets 402 tops up.
+PaymentRequiredException = http_exception_factory(
+    status.HTTP_402_PAYMENT_REQUIRED, "PaymentRequired", "Payment required"
+)
 BadRequestException = http_exception_factory(
     status.HTTP_400_BAD_REQUEST, "BadRequest", "Bad request"
 )

@@ -24,6 +24,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from unittest.mock import patch
 
 from gpustack.api.exceptions import AlreadyExistsException, InvalidException
+from gpustack.schemas.api_keys import ApiKey
 from gpustack.schemas.billing import (
     SKU_TOKEN_COMPLETION,
     SKU_TOKEN_PROMPT,
@@ -113,7 +114,9 @@ def _code(id_=1, code="A" * 32, amount="50", status=RedemptionStatus.ENABLED,
 async def engine():
     engine = create_async_engine("sqlite+aiosqlite://")
     async with engine.begin() as conn:
-        for model in (Wallet, LedgerEntry, BillingSession, Redemption):
+        # ApiKey is here because suspending a wallet propagates to the keys that
+        # spend from it — settlement is not complete without that half.
+        for model in (Wallet, LedgerEntry, BillingSession, Redemption, ApiKey):
             await conn.run_sync(model.__table__.create)
     yield engine
     await engine.dispose()

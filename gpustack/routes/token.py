@@ -28,6 +28,7 @@ from gpustack.api.auth import (
     GATEWAY_DOWNSTREAM_CONN_HEADER,
 )
 from gpustack.security import JWTManager, AUTH_CACHE_HEADER
+from gpustack.server.billing_enforcement import assert_billing_active
 from gpustack.server.gateway_auth_reconciler import gateway_ref_indexable
 
 logger = logging.getLogger(__name__)
@@ -229,6 +230,14 @@ async def server_auth(
             raise ForbiddenException(
                 message=f"Not allowed to access model {model_name}"
             )
+        # Billing suspension, checked here because this endpoint is where a key
+        # the gateway could not verify locally ends up: a suspended key is absent
+        # from the plugin's table, so the request arrives here and must be
+        # refused rather than authorized. 402 tells the tenant to top up, which
+        # 403 would not.
+        await assert_billing_active(
+            session, api_key=api_key, user=user, model_name=model_name
+        )
     # No ``token`` claim: the upstream credential is held statically by
     # ai-proxy's ``apiTokens`` and no longer travels per request.
     #
