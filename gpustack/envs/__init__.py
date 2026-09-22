@@ -410,6 +410,30 @@ USAGE_DETAILS_BUFFER_MAX_SIZE = int(
     os.getenv("GPUSTACK_USAGE_DETAILS_BUFFER_MAX_SIZE", 100000)
 )
 
+# Billing engine (see docs/prd/13-计费引擎开发TODO.md).
+#
+# ``GPUSTACK_BILLING_MODE`` is the master switch, and the three states exist so
+# a deployment can be verified before it charges anyone:
+#   off     — the rater does not run; no ledger rows are written.
+#   shadow  — rating runs and writes ledger rows, but nothing is ever debited
+#             from a wallet. This is the mode to reconcile in: compare the
+#             ledger against the usage tables and against a manual calculation
+#             before turning on enforcement. The default, because billing money
+#             by accident is worse than not billing it yet.
+#   enforce — rating plus settlement; wallets are debited and an org that runs
+#             dry is suspended (settlement lands with WP4).
+BILLING_MODE = os.getenv("GPUSTACK_BILLING_MODE", "shadow").strip().lower()
+# How often the rater sweeps for unrated usage. Short enough that a charge
+# shows up in a bill while the operator is still looking at the dashboard,
+# long enough that the sweep is not the database's busiest query.
+BILLING_RATE_INTERVAL_SECONDS = int(
+    os.getenv("GPUSTACK_BILLING_RATE_INTERVAL_SECONDS", 30)
+)
+# Rows pulled per sweep, per source table. Bounds the transaction size so a
+# backlog (a rater that was off for a week) drains in chunks instead of one
+# enormous commit.
+BILLING_RATE_BATCH_SIZE = int(os.getenv("GPUSTACK_BILLING_RATE_BATCH_SIZE", 500))
+
 # ``resource_events`` hot/cold archival — same shape as the model_usage_details
 # pair above. The events table grows much slower (lifecycle events, not per
 # request), so the defaults are conservative.

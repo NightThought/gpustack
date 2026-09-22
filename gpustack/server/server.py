@@ -89,6 +89,7 @@ from gpustack.server.update_check import UpdateChecker
 from gpustack.server.worker_status_buffer import flush_worker_status_to_db
 from gpustack.server.metrics_collector import flush_gateway_metrics_to_db
 from gpustack.server.usage_details_archiver import UsageDetailsArchiver
+from gpustack.server.billing_rater import BillingRater
 from gpustack.server.resource_event_logger import ResourceEventLogger
 from gpustack.server.resource_usage_collector import ResourceUsageCollector
 from gpustack.server.storage_usage_collector import StorageUsageCollector
@@ -610,6 +611,28 @@ class Server:
         self._create_async_task(archiver.start())
 
         logger.debug("Usage details archiver started.")
+
+    def _start_billing_rater(self):
+        # An invalid GPUSTACK_BILLING_MODE must fail loudly here rather than
+        # degrade into a rater that never runs: a platform that silently stops
+        # rating usage stops billing it, and that surfaces as a revenue gap
+        # weeks later. Construction is what validates the mode, so a bad value
+        # skips launching the loop and logs at critical, like the archiver above.
+        try:
+            rater = BillingRater()
+        except Exception:
+            logger.critical(
+                "Billing rater failed to initialize — usage rating is DISABLED. "
+                "Check GPUSTACK_BILLING_MODE / GPUSTACK_BILLING_RATE_*.",
+                exc_info=True,
+            )
+            return
+        if rater.mode.value == "off":
+            logger.info("Billing rater is disabled by configuration.")
+            return
+        self._create_async_task(rater.start())
+
+        logger.debug(f"Billing rater started (mode={rater.mode.value}).")
 
     def _start_resource_usage(self):
         """Start the resource-metering pipeline: event logger → collectors →
@@ -1517,6 +1540,9 @@ class Server:
 
         # Usage Details Archiver (move aged rows to archive table)
         self._start_usage_details_archiver()
+
+        # Billing Rater (usage rows -> priced ledger entries)
+        self._start_billing_rater()
 
         # Resource usage metering (event logger → collectors → archiver)
         self._start_resource_usage()

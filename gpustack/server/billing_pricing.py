@@ -55,7 +55,7 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+def as_utc(value: Optional[datetime]) -> Optional[datetime]:
     """Normalize a datetime to aware UTC before comparing it.
 
     ``UTCDateTime`` strips tzinfo on the way in and re-attaches UTC on the way
@@ -109,8 +109,8 @@ def windows_overlap(
     Both sides are normalized first: one edge typically comes from the database
     (aware) and the other from the request being validated (possibly naive).
     """
-    a_from, a_to = _as_utc(a_from), _as_utc(a_to)
-    b_from, b_to = _as_utc(b_from), _as_utc(b_to)
+    a_from, a_to = as_utc(a_from), as_utc(a_to)
+    b_from, b_to = as_utc(b_from), as_utc(b_to)
     if a_to is not None and a_to <= b_from:
         return False
     if b_to is not None and b_to <= a_from:
@@ -199,7 +199,7 @@ def assert_identity_unchanged(
     for name in _IDENTITY_FIELDS:
         current, proposed = getattr(existing, name), getattr(incoming, name)
         if isinstance(current, datetime) or isinstance(proposed, datetime):
-            current, proposed = _as_utc(current), _as_utc(proposed)
+            current, proposed = as_utc(current), as_utc(proposed)
         if current != proposed:
             changed.append(name)
     if changed:
@@ -253,13 +253,13 @@ def pick_price(
     Returns ``None`` when nothing covers ``at`` — the rater treats that as
     "unpriced, do not guess" and surfaces it rather than billing zero.
     """
-    at = _as_utc(at)
+    at = as_utc(at)
     matches = [
         entry
         for entry in entries
         if entry.sku == sku
-        and _as_utc(entry.effective_from) <= at
-        and (entry.effective_to is None or at < _as_utc(entry.effective_to))
+        and as_utc(entry.effective_from) <= at
+        and (entry.effective_to is None or at < as_utc(entry.effective_to))
         and _scope_matches(entry.model_name, model_name)
         and _scope_matches(entry.group_name, group_name)
     ]
@@ -275,7 +275,7 @@ def pick_price(
             model_exact,
             group_exact,
             *_specificity(entry),
-            _as_utc(entry.effective_from),
+            as_utc(entry.effective_from),
             entry.id or 0,
         )
 
