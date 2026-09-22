@@ -26,9 +26,9 @@ timestamps + soft delete.
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import ClassVar, Optional
+from typing import ClassVar, List, Optional
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, model_validator
 from sqlalchemy import (
     BigInteger,
     Column,
@@ -40,7 +40,7 @@ from sqlalchemy import (
 from sqlmodel import Field, SQLModel
 
 from gpustack.mixins import BaseModelMixin
-from gpustack.schemas.common import UTCDateTime
+from gpustack.schemas.common import ListParams, PaginatedList, PublicFields, UTCDateTime
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -220,20 +220,20 @@ class Wallet(SQLModel, BaseModelMixin, table=True):
 # ---------------------------------------------------------------------------
 
 
-class PriceBookEntry(SQLModel, BaseModelMixin, table=True):
-    """One price for one SKU.
+class PriceBookEntryBase(SQLModel):
+    """Editable surface of a price row.
 
     ``sku`` + ``model_name`` (NULL for resource SKUs, which price per gpu_type
     embedded in the sku itself) + an effective window identify a price. Windows
-    MUST NOT overlap for one (sku, model_name) — enforced in the service layer
-    (WP2.1), not by a constraint, because "no overlap" is not expressible in
-    portable DDL. ``version`` is stamped onto every ledger entry priced by this
-    row, so a price change never rewrites history.
+    MUST NOT overlap for one (sku, model_name, group_name) — enforced by
+    ``server.billing_pricing.assert_window_available``, not by a constraint,
+    because "no overlap" is not expressible in portable DDL.
+
+    The unit is derived from the sku rather than free-form: a price quoted per
+    token against a gpu-hour SKU would silently bill a factor of 3600 off, so
+    the pairing is checked at the API boundary instead of at rating time.
     """
 
-    __tablename__: ClassVar[str] = "billing_price_book"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
     sku: str = Field(sa_column=Column(String(64), nullable=False, index=True))
     # Model the price applies to (token SKUs). NULL = resource SKU or a
     # catch-all default for a sku family.
@@ -242,25 +242,85 @@ class PriceBookEntry(SQLModel, BaseModelMixin, table=True):
     # group scoping. Reserved for the org-group pricing tier.
     group_name: Optional[str] = Field(default=None, max_length=128)
     unit: str = Field(sa_column=Column(String(32), nullable=False))
-    # Price per one ``unit`` (e.g. per 1K tokens — see ``per_quantity``, which
-    # keeps the divisor explicit rather than implied by the unit string).
+    # Price for ``per_quantity`` units (e.g. 0.002 per 1000 tokens) — the
+    # divisor is explicit rather than implied by the unit string.
     price: Decimal = Field(sa_column=_money_column(nullable=False))
     per_quantity: Decimal = Field(
         default=Decimal(1),
         sa_column=_money_column(nullable=False, default=Decimal(1), server_default="1"),
     )
     currency: str = Field(default="CNY", sa_column=Column(String(8), nullable=False))
-    # Monotonic per row; bumped on every price edit so ledger snapshots can be
-    # tied back to the exact revision that produced them.
-    version: int = Field(default=1, sa_column=Column(Integer, nullable=False))
     effective_from: datetime = Field(sa_column=Column(UTCDateTime(), nullable=False))
-    # NULL = open-ended (current price).
+    # NULL = open-ended (the current price).
     effective_to: Optional[datetime] = Field(
         default=None, sa_column=Column(UTCDateTime(), nullable=True)
     )
     is_active: bool = Field(default=True)
 
     model_config = ConfigDict(protected_namespaces=())
+
+    @model_validator(mode="after")
+    def _validate_pricing_shape(self):
+        expected_unit = unit_for_sku(self.sku)  # raises on an unknown sku
+        if self.unit != expected_unit:
+            raise ValueError(
+                f"unit for sku {self.sku!r} must be {expected_unit!r}, "
+                f"got {self.unit!r}"
+            )
+        if self.price < 0:
+            raise ValueError("price must not be negative")
+        if self.per_quantity <= 0:
+            raise ValueError("per_quantity must be greater than zero")
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            raise ValueError("effective_to must be later than effective_from")
+        return self
+
+
+class PriceBookEntryUpdate(PriceBookEntryBase):
+    """PUT payload: the whole editable surface, as with other resources here.
+
+    ``sku`` / ``model_name`` / ``unit`` / ``currency`` / ``effective_from`` are
+    the row's identity and history anchor — the route rejects changing them
+    (edit the price or close the window instead), so a ledger entry's
+    ``price_book_version`` always points at a row that means what it meant.
+    """
+
+
+class PriceBookEntryCreate(PriceBookEntryUpdate):
+    pass
+
+
+class PriceBookEntry(PriceBookEntryCreate, BaseModelMixin, table=True):
+    """One price for one SKU.
+
+    ``version`` is server-managed: it starts at 1 and is bumped by the route on
+    every accepted price edit, and is stamped onto each ledger entry priced by
+    this row, so a price change never rewrites history.
+    """
+
+    __tablename__: ClassVar[str] = "billing_price_book"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    version: int = Field(default=1, sa_column=Column(Integer, nullable=False))
+
+
+class PriceBookEntryListParams(ListParams):
+    sortable_fields: ClassVar[List[str]] = [
+        "sku",
+        "model_name",
+        "price",
+        "effective_from",
+        "effective_to",
+        "created_at",
+        "updated_at",
+    ]
+
+
+class PriceBookEntryPublic(PriceBookEntryBase, PublicFields):
+    version: int
+
+
+PriceBookEntriesPublic = PaginatedList[PriceBookEntryPublic]
 
 
 # ---------------------------------------------------------------------------

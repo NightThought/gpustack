@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from gpustack.routes import (
     api_keys,
     auth,
+    billing,
     cache_providers,
     cacerts,
     cache_service_instances,
@@ -388,6 +389,15 @@ admin_routers = [
         "router": source_probe.router,
         "prefix": "/source-probe",
         "tags": ["Source Probe"],
+    },
+    # Billing administration — the price book. Platform-scoped rather than
+    # org-owned: one price truth applies to every tenant, so there is no owner
+    # to scope by. Sibling billing resources (wallets, invoices, quotas) mount
+    # under the same /billing prefix as they land.
+    {
+        "router": billing.router,
+        "prefix": "/billing/price-book",
+        "tags": ["Billing"],
     },
 ]
 
