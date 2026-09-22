@@ -179,6 +179,13 @@ class BillingRater:
         if self._batch_size <= 0:
             raise ValueError("billing rate batch size must be positive")
         self.last_report: Optional[RatingReport] = None
+        # Unpriced sources are retried every sweep until a price appears, so
+        # without this a model nobody priced would log the same warning every
+        # interval forever — and the warning that matters (a NEW gap) would be
+        # buried in it. Bounded so a long-running leader cannot grow it without
+        # limit; dropping the oldest keys only risks re-warning once.
+        self._warned_reasons: Dict[str, None] = {}
+        self._max_warned_reasons = 10000
 
     @property
     def mode(self) -> BillingMode:
@@ -202,14 +209,39 @@ class BillingRater:
                 self.last_report = report
                 if report.entries or report.promoted or report.unpriced_reasons:
                     logger.info(report.summary())
-                    for reason in report.unpriced_reasons[:10]:
-                        logger.warning(f"billing: unpriced usage — {reason}")
+                self._log_unpriced(report)
             except Exception as e:
                 # Never let a rating failure escape: the leader task loop has no
                 # per-task supervision, and a billing bug must not take down the
                 # scheduler or controllers running beside it.
                 logger.error(f"Billing rating sweep failed: {e}", exc_info=True)
             await asyncio.sleep(self._interval)
+
+    def _log_unpriced(self, report: RatingReport) -> None:
+        """Warn once per distinct gap, then report the backlog as a count.
+
+        The gap itself is the actionable fact ("model X has no price"), and it
+        stays true across sweeps; repeating it every interval trains operators
+        to ignore the billing log. The count still moves, so a growing backlog
+        is visible without the noise.
+        """
+        new = [r for r in report.unpriced_reasons if r not in self._warned_reasons]
+        for reason in new:
+            self._warned_reasons[reason] = None
+        if len(self._warned_reasons) > self._max_warned_reasons:
+            for key in list(self._warned_reasons)[: self._max_warned_reasons // 2]:
+                del self._warned_reasons[key]
+        for reason in new[:10]:
+            logger.warning(f"billing: unpriced usage — {reason}")
+        if len(new) > 10:
+            logger.warning(f"billing: {len(new) - 10} further unpriced sources")
+        repeated = len(report.unpriced_reasons) - len(new)
+        if repeated:
+            logger.info(
+                f"billing: {repeated} previously reported unpriced source(s) still "
+                "await a price; they are retried every sweep and will be rated "
+                "once one exists"
+            )
 
     async def rate_once(self) -> RatingReport:
         """One sweep over both sources. Safe to call repeatedly."""
@@ -481,11 +513,25 @@ class BillingRater:
                 report.token_unpriced += 1
             else:
                 report.resource_unpriced += 1
+            # One marker per SKU the row would have used — the same granularity
+            # as the missing-price branch below, because promotion keys on
+            # (source_table, source_id, sku). A single marker for the whole row
+            # would leave the other SKUs with nothing to promote.
             return [
                 self._void_entry(
                     source_table=source_table,
                     source_id=source_id,
-                    sku=quantities[0][0] if quantities else SKU_OUT_OF_SCOPE,
+                    sku=sku,
+                    payer=None,
+                    occurred_at=occurred_at,
+                    attribution=attribution,
+                )
+                for sku, _quantity in quantities
+            ] or [
+                self._void_entry(
+                    source_table=source_table,
+                    source_id=source_id,
+                    sku=SKU_OUT_OF_SCOPE,
                     payer=None,
                     occurred_at=occurred_at,
                     attribution=attribution,
@@ -521,7 +567,11 @@ class BillingRater:
                     occurred_at=occurred_at,
                     attribution=attribution,
                 )
-                for sku in {sku for sku, _ in quantities}
+                # Every SKU the row would have used, not just the missing ones:
+                # the row is billed whole or not at all, so when the missing
+                # price appears the whole row is re-rated and each of its SKUs
+                # needs a placeholder to be promoted from.
+                for sku, _quantity in quantities
             ]
 
         entries = []

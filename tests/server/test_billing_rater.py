@@ -565,6 +565,34 @@ async def test_batch_size_bounds_one_sweep(engine, session_factory):
 
 
 @pytest.mark.asyncio
+async def test_unpriced_gap_warns_once_then_reports_a_count(engine, session_factory, caplog):
+    """A permanently unpriced model must not warn every sweep.
+
+    The gap is retried until a price appears, so without dedup the same warning
+    would land in the log every interval forever and bury the new gaps that
+    actually need someone to act.
+    """
+    await _seed(session_factory, _detail(100))
+    rater = BillingRater(mode=BillingMode.SHADOW)
+
+    first = await rater.rate_once()
+    with caplog.at_level("WARNING", logger="gpustack.server.billing_rater"):
+        rater._log_unpriced(first)
+    warnings_first = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings_first) == 1
+    assert "no active price" in warnings_first[0].getMessage()
+
+    caplog.clear()
+    second = await rater.rate_once()
+    assert second.unpriced_reasons == first.unpriced_reasons  # still unpriced
+    with caplog.at_level("INFO", logger="gpustack.server.billing_rater"):
+        rater._log_unpriced(second)
+    assert [r for r in caplog.records if r.levelname == "WARNING"] == []
+    infos = [r.getMessage() for r in caplog.records if r.levelname == "INFO"]
+    assert any("previously reported unpriced" in m for m in infos)
+
+
+@pytest.mark.asyncio
 async def test_report_summary_is_loggable(engine, session_factory):
     await _seed(
         session_factory,
