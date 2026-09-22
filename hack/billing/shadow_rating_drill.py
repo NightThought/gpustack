@@ -52,9 +52,11 @@ from gpustack.schemas.billing import (
     UNIT_GB_HOURS,
     UNIT_GPU_HOURS,
     UNIT_TOKENS,
+    BillingSession,
     LedgerEntry,
     LedgerStatus,
     PriceBookEntry,
+    SettleMode,
     Wallet,
 )
 from gpustack.schemas.metered_usage import (
@@ -71,6 +73,7 @@ from gpustack.schemas.model_usage_details import ModelUsageDetails
 from gpustack.server import db as gpustack_db
 from gpustack.server.billing_pricing import invalidate_price_cache
 from gpustack.server.billing_rater import SKU_OUT_OF_SCOPE, BillingMode, BillingRater
+from gpustack.server.billing_settlement import BillingSettler
 from gpustack.server.init_db import init_db_engine
 
 DEFAULT_DATABASE_URL = "postgresql://root@localhost:5432/gpustack"
@@ -196,6 +199,52 @@ def expected_ledger() -> Dict[Tuple[str, int, str], Tuple[str, Decimal, Decimal]
     return expected
 
 
+def expected_by_principal() -> Dict[int, Dict[str, Decimal]]:
+    """Expected settled (realtime) and invoiced-later (deferred) totals per org.
+
+    Derived from the same oracle as ``expected_ledger``, so phase B checks the
+    wallet movements against arithmetic that never went through the rater or the
+    settler.
+    """
+    totals: Dict[int, Dict[str, Decimal]] = {}
+    for (_table, source_id, _sku), (status, _qty, amount) in expected_ledger().items():
+        if status != LedgerStatus.PENDING.value:
+            continue
+        entry = _lookup_source(source_id)
+        if entry is None or entry[0] is None:
+            continue
+        principal, settle_mode = entry
+        bucket = totals.setdefault(
+            principal, {"realtime": Decimal(0), "deferred": Decimal(0)}
+        )
+        bucket[settle_mode] += amount
+    return totals
+
+
+def _lookup_source(source_id: int):
+    """(payer principal, settle mode) for a drill source row, or None.
+
+    ``None`` means the row produces no charge: an interrupted request, an
+    unsealed bucket, or a shape with no billable SKU (a CPU-only instance).
+    Storage is billable on its own meter and carries no gpu_type, so it must be
+    recognised here separately — folding it into the GPU branch dropped the
+    volume charge from the per-principal totals.
+    """
+    for rid, _model, _p, _c, _comp, completed, payer, _s in REQUESTS:
+        if rid == source_id:
+            return (payer, "realtime") if completed else None
+    for bid, meter, _rt, _n, _q, cards, gpu_type, sealed, payer, _u, _s in BUCKETS:
+        if bid == source_id:
+            if not sealed:
+                return None
+            if meter == METER_STORAGE_CAPACITY:
+                return (payer, "deferred")
+            if meter == METER_INSTANCE_UPTIME and gpu_type and cards > 0:
+                return (payer, "deferred")
+            return None  # CPU-only: no billable SKU
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Seed / cleanup
 # ---------------------------------------------------------------------------
@@ -214,6 +263,12 @@ async def cleanup(session: AsyncSession) -> None:
             LedgerEntry.source_id.in_(list(BUCKET_IDS)),
         )
     )
+    await session.exec(
+        delete(BillingSession).where(
+            BillingSession.principal_id.in_([ORG_A, ORG_B])
+        )
+    )
+    await session.exec(delete(Wallet).where(Wallet.principal_id.in_([ORG_A, ORG_B])))
     await session.exec(
         delete(ModelUsageDetails).where(ModelUsageDetails.id.in_(list(REQUEST_IDS)))
     )
@@ -452,20 +507,158 @@ async def run(database_url: str) -> int:
         f"第二轮新增计费 {second.entries} 条 = {idempotent}"
     )
 
+    settle_problems = await phase_b_settlement(engine)
+
     print("\n" + bar)
-    if problems or not idempotent or wallets != 0:
-        print(f"演练失败：对账差异 {len(problems)} 处，幂等={idempotent}")
-        for p in problems[:20]:
+    failed = problems or not idempotent or wallets != 0 or settle_problems
+    if failed:
+        print(
+            f"演练失败：计价对账差异 {len(problems)} 处，幂等={idempotent}，"
+            f"结算差异 {len(settle_problems)} 处"
+        )
+        for p in (problems + settle_problems)[:20]:
             print(f"  - {p}")
     else:
         print(
             f"演练通过：{len(actual)} 条 ledger 与独立重算逐条一致（0 差异），"
-            f"幂等成立，钱包未被触碰"
+            f"幂等成立，影子阶段未碰钱包，enforce 结算与钱包变动逐笔对平"
         )
     print(bar)
 
     await engine.dispose()
-    return 1 if (problems or not idempotent or wallets != 0) else 0
+    return 1 if failed else 0
+
+
+async def phase_b_settlement(engine) -> List[str]:
+    """Switch to enforce and reconcile wallet movements against the oracle.
+
+    ORG_A is funded well past what it owes, so every realtime charge settles.
+    ORG_B is funded *below* its first charge on purpose: the interesting
+    behaviour is a wallet that runs dry mid-sweep — oldest charges collected,
+    the rest left as arrears, wallet suspended, and nothing overdrawn.
+    """
+    print("\n[10] 阶段 B：enforce 结算（钱包实扣）")
+    expected_totals = expected_by_principal()
+    funded = {ORG_A: Decimal("1000"), ORG_B: Decimal("0.05")}
+
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        for principal_id, amount in funded.items():
+            session.add(
+                Wallet(
+                    principal_id=principal_id,
+                    balance=amount,
+                    created_at=NOW,
+                    updated_at=NOW,
+                )
+            )
+        await session.commit()
+
+    report = await BillingSettler(mode=BillingMode.ENFORCE).settle_once()
+    print(f"      {report.summary()}")
+
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        wallet_rows = {
+            w.principal_id: w for w in (await session.exec(select(Wallet))).all()
+        }
+        settled = list(
+            (
+                await session.exec(
+                    select(LedgerEntry).where(
+                        LedgerEntry.status == LedgerStatus.SETTLED.value
+                    )
+                )
+            ).all()
+        )
+        pending = list(
+            (
+                await session.exec(
+                    select(LedgerEntry).where(
+                        LedgerEntry.status == LedgerStatus.PENDING.value,
+                        LedgerEntry.source_id.in_(
+                            list(REQUEST_IDS) + list(BUCKET_IDS)
+                        ),
+                    )
+                )
+            ).all()
+        )
+        sessions = list((await session.exec(select(BillingSession))).all())
+
+    problems: List[str] = []
+
+    # ORG_A: everything realtime settles, nothing deferred does.
+    realtime_a = expected_totals.get(ORG_A, {}).get("realtime", Decimal(0))
+    wallet_a = wallet_rows[ORG_A]
+    expected_a = funded[ORG_A] - realtime_a
+    if wallet_a.balance != expected_a:
+        problems.append(
+            f"ORG_A 余额期望 {fmt(expected_a)} 实际 {fmt(wallet_a.balance)}"
+        )
+    if wallet_a.suspended:
+        problems.append("ORG_A 余额充足却被停服")
+    settled_a = sum(
+        (Decimal(e.amount) for e in settled if e.principal_id == ORG_A), Decimal(0)
+    )
+    if settled_a != realtime_a:
+        problems.append(
+            f"ORG_A 已结算金额期望 {fmt(realtime_a)} 实际 {fmt(settled_a)}"
+        )
+
+    # ORG_B: first charge exceeds the balance, so nothing settles and it is
+    # suspended — with the balance untouched and never negative.
+    wallet_b = wallet_rows[ORG_B]
+    if not wallet_b.suspended:
+        problems.append("ORG_B 余额不足却未被停服")
+    if wallet_b.balance != funded[ORG_B]:
+        problems.append(
+            f"ORG_B 余额应保持不变 {fmt(funded[ORG_B])}，实际 {fmt(wallet_b.balance)}"
+        )
+    if wallet_b.balance < 0:
+        problems.append(f"ORG_B 透支：{fmt(wallet_b.balance)}")
+    if any(e.principal_id == ORG_B for e in settled):
+        problems.append("ORG_B 不应有任何已结算条目")
+
+    # Deferred charges are still waiting for an invoice, not for a wallet.
+    deferred_pending = [
+        e for e in pending if e.settle_mode == SettleMode.DEFERRED.value
+    ]
+    expected_deferred = sum(
+        (v.get("deferred", Decimal(0)) for v in expected_totals.values()), Decimal(0)
+    )
+    deferred_sum = sum((Decimal(e.amount) for e in deferred_pending), Decimal(0))
+    if deferred_sum != expected_deferred:
+        problems.append(
+            f"deferred 待出账金额期望 {fmt(expected_deferred)} 实际 {fmt(deferred_sum)}"
+        )
+
+    # Money conservation: what left the wallets equals what the ledger settled.
+    wallet_delta = sum(
+        (funded[pid] - wallet_rows[pid].balance for pid in funded), Decimal(0)
+    )
+    total_settled = sum((Decimal(e.amount) for e in settled), Decimal(0))
+    if wallet_delta != total_settled:
+        problems.append(
+            f"钱包减少额 {fmt(wallet_delta)} ≠ ledger 已结算额 {fmt(total_settled)}"
+        )
+
+    print("\n[11] 结算对账：")
+    print(
+        f"      ORG_A：余额 {fmt(funded[ORG_A])} → {fmt(wallet_a.balance)}"
+        f"（实时应付 {fmt(realtime_a)}），停服={wallet_a.suspended}"
+    )
+    print(
+        f"      ORG_B：余额 {fmt(funded[ORG_B])} → {fmt(wallet_b.balance)}"
+        f"（余额不足），停服={wallet_b.suspended}"
+    )
+    print(
+        f"      已结算 {len(settled)} 条 / {fmt(total_settled)} CNY；"
+        f"待出账（deferred）{len(deferred_pending)} 条 / {fmt(deferred_sum)} CNY；"
+        f"结算会话 {len(sessions)} 个"
+    )
+    print(
+        f"      资金守恒：钱包减少 {fmt(wallet_delta)} == ledger 已结算 "
+        f"{fmt(total_settled)} → {wallet_delta == total_settled}"
+    )
+    return problems
 
 
 def main() -> int:

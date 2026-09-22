@@ -30,8 +30,9 @@ Modes (``GPUSTACK_BILLING_MODE``)
 --------------------------------
 ``off`` writes nothing. ``shadow`` writes the ledger but never touches a wallet
 — the reconciliation mode, and the default. ``enforce`` adds settlement (WP4).
-Rating is identical in shadow and enforce, which is the point: what you
-reconciled is what you later charge.
+Rating is identical in shadow and enforce; the difference is that enforce also
+runs the settler (``server.billing_settlement``), which is the only code that
+debits a wallet.
 """
 
 import asyncio
@@ -668,20 +669,6 @@ class BillingRater:
                 report.promoted += 1
             # Otherwise (already a real charge, or still unpriced) leave it alone:
             # re-rating settled history is how a bill stops being reproducible.
-
-    async def rate_and_settle_once(self) -> RatingReport:
-        """Rating plus settlement — the enforce-mode entry point.
-
-        Settlement itself lands with WP4; until then enforce mode rates exactly
-        as shadow does and says so, rather than pretending wallets were debited.
-        """
-        report = await self.rate_once()
-        if self._mode is BillingMode.ENFORCE:
-            logger.warning(
-                "billing mode is 'enforce' but settlement is not implemented yet "
-                "(WP4); the ledger was written and no wallet was debited"
-            )
-        return report
 
 
 # ---------------------------------------------------------------------------

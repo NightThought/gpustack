@@ -60,11 +60,19 @@ SKU_TOKEN_CACHED = "model.token.cached"
 SKU_GPU_HOUR_PREFIX = "gpu.hour."  # + gpu_type, e.g. gpu.hour.910b
 SKU_STORAGE_GB_HOUR = "storage.gb.hour"
 
+# Wallet-movement SKUs. These price nothing — they label a credit or an
+# adjustment in the ledger so every balance change has a row behind it — which
+# is why ``unit_for_sku`` does not know them and rating never resolves a price
+# for them.
+SKU_WALLET_TOPUP = "wallet.topup"
+SKU_WALLET_ADJUSTMENT = "wallet.adjustment"
+
 # Units a price is quoted in, per SKU family.
 UNIT_TOKENS = "tokens"
 UNIT_GPU_HOURS = "gpu_hours"
 UNIT_GB_HOURS = "gb_hours"
 UNIT_REQUESTS = "requests"  # per-request priced operations (image / tts / stt)
+UNIT_CURRENCY = "currency"  # wallet movements: quantity is an amount, not a count
 
 
 def _money_column(**kwargs) -> Column:

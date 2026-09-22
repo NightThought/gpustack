@@ -90,6 +90,7 @@ from gpustack.server.worker_status_buffer import flush_worker_status_to_db
 from gpustack.server.metrics_collector import flush_gateway_metrics_to_db
 from gpustack.server.usage_details_archiver import UsageDetailsArchiver
 from gpustack.server.billing_rater import BillingRater
+from gpustack.server.billing_settlement import BillingSettler
 from gpustack.server.resource_event_logger import ResourceEventLogger
 from gpustack.server.resource_usage_collector import ResourceUsageCollector
 from gpustack.server.storage_usage_collector import StorageUsageCollector
@@ -633,6 +634,26 @@ class Server:
         self._create_async_task(rater.start())
 
         logger.debug(f"Billing rater started (mode={rater.mode.value}).")
+
+    def _start_billing_settler(self):
+        # Separate loop from the rater rather than a stage inside it: rating is
+        # safe to run in shadow for weeks, while settling moves money, and the
+        # two must be startable, stoppable and log-readable independently. The
+        # settler idles unless the mode is enforce, so starting it always is
+        # what keeps a mode change from needing a second edit here.
+        try:
+            settler = BillingSettler()
+        except Exception:
+            logger.critical(
+                "Billing settler failed to initialize — settlement is DISABLED. "
+                "The ledger will keep accruing PENDING charges until this is "
+                "resolved.",
+                exc_info=True,
+            )
+            return
+        self._create_async_task(settler.start())
+
+        logger.debug(f"Billing settler started (mode={settler.mode.value}).")
 
     def _start_resource_usage(self):
         """Start the resource-metering pipeline: event logger → collectors →
@@ -1543,6 +1564,9 @@ class Server:
 
         # Billing Rater (usage rows -> priced ledger entries)
         self._start_billing_rater()
+
+        # Billing Settler (priced ledger entries -> wallet debits; enforce only)
+        self._start_billing_settler()
 
         # Resource usage metering (event logger → collectors → archiver)
         self._start_resource_usage()

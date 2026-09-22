@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -36,6 +37,7 @@ from gpustack.schemas.billing import (
     LedgerStatus,
     PriceBookEntry,
     SettleMode,
+    Wallet,
 )
 from gpustack.schemas.metered_usage import (
     METER_INSTANCE_UPTIME,
@@ -151,7 +153,13 @@ def _bucket(
 async def engine():
     engine = create_async_engine("sqlite+aiosqlite://")
     async with engine.begin() as conn:
-        for model in (PriceBookEntry, LedgerEntry, ModelUsageDetails, MeteredUsage):
+        for model in (
+            PriceBookEntry,
+            LedgerEntry,
+            ModelUsageDetails,
+            MeteredUsage,
+            Wallet,
+        ):
             await conn.run_sync(model.__table__.create)
     invalidate_price_cache()
     yield engine
@@ -609,10 +617,14 @@ async def test_report_summary_is_loggable(engine, session_factory):
 
 
 @pytest.mark.asyncio
-async def test_enforce_mode_rates_but_warns_settlement_is_pending(
-    engine, session_factory, caplog
-):
-    """Until WP4 lands, enforce must not pretend wallets were debited."""
+async def test_enforce_mode_rates_without_debiting_any_wallet(engine, session_factory):
+    """Rating never moves money, whatever the mode.
+
+    Settlement is a separate loop (``server.billing_settlement``), so enforce
+    mode rating must produce exactly what shadow produces and leave wallets
+    alone — the property that makes a shadow reconciliation trustworthy as a
+    preview of what enforce will charge.
+    """
     await _seed(
         session_factory,
         _price(1, SKU_TOKEN_PROMPT, "0.002"),
@@ -620,10 +632,20 @@ async def test_enforce_mode_rates_but_warns_settlement_is_pending(
         _detail(100),
     )
 
-    report = await BillingRater(mode=BillingMode.ENFORCE).rate_and_settle_once()
+    shadow = await BillingRater(mode=BillingMode.SHADOW).rate_once()
+    async with AsyncSession(engine) as s:
+        await s.exec(delete(LedgerEntry))
+        await s.commit()
+    invalidate_price_cache()
 
-    assert report.token_entries == 2
-    assert "settlement is not implemented" in caplog.text
+    enforced = await BillingRater(mode=BillingMode.ENFORCE).rate_once()
+
+    assert enforced.token_entries == shadow.token_entries == 2
+    entries = await _ledger(engine)
+    assert all(e.status == LedgerStatus.PENDING.value for e in entries)
+    async with AsyncSession(engine) as s:
+        wallets = (await s.exec(select(Wallet))).all()
+    assert wallets == []
 
 
 @pytest.mark.asyncio
