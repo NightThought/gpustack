@@ -25,7 +25,8 @@ from pydantic import BaseModel, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.datastructures import State
 
-from gpustack import __version__, envs
+from gpustack import branding
+from gpustack import envs
 from gpustack.config.config import get_global_config
 from gpustack.schemas.catalog_source import CatalogSource, normalize_catalog_yaml
 from gpustack.schemas.inference_backend_source import (
@@ -59,14 +60,20 @@ OFFICIAL_DEFAULT_HOURS = 12
 # Per-operation (connect, each read), not whole-download.
 _REFRESH_TIMEOUT_SECONDS = 30
 
-_HEADERS = {"User-Agent": f"gpustack/{__version__}"}
+_HEADERS = {"User-Agent": branding.USER_AGENT}
 
 # The directory the index and the published documents sit in — the only remote
 # the OFFICIAL slots read. There is no fallback to the source repos, so an
 # unreachable OTA server leaves the stored content alone and retries next tick.
 # ``ota_server_url`` (config / CLI / ``GPUSTACK_OTA_SERVER_URL``)
 # replaces the whole URL, so an OTA server of your own can live at any path.
-OTA_SERVER_URL = "https://ota.gpustack.ai/latest"
+#
+# Empty by default, which disables the OFFICIAL slot entirely: a rebranded
+# deployment serves the content packaged with its own release rather than
+# tracking a feed it does not control. ``_refresh_official`` short-circuits on
+# it, so nothing is fetched and no per-tick warning is logged — this is a
+# configuration, not a failure. Point it at a mirror to re-enable.
+OTA_SERVER_URL = branding.OTA_SERVER_URL
 
 # A ref and a sha256 per file, so one small fetch tells every kind whether its
 # document moved.
@@ -443,6 +450,18 @@ async def _refresh_official(
     """
     due = await _due_official_rows(session, now, revalidate or force)
     if not due:
+        return
+
+    if not (ota_server_url or OTA_SERVER_URL):
+        # No OTA server configured. This is a deliberate configuration rather
+        # than an outage, so it is not reported as an error: the OFFICIAL slot
+        # simply keeps whatever was packaged with this release. Logged at debug
+        # because the refresh loop runs on a timer and a warning here would be
+        # one line per tick for the life of the process.
+        logger.debug(
+            "Source refresh skipping OFFICIAL rows: no OTA server configured "
+            "(set --ota-server-url or GPUSTACK_OTA_SERVER_URL to enable)"
+        )
         return
 
     try:

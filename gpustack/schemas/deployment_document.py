@@ -28,6 +28,7 @@ from typing import (
 import yaml
 from pydantic import BaseModel, NonNegativeInt, ValidationError
 
+from gpustack import branding
 from gpustack import __version__
 from .models import Model, ModelCreate, ModelPublic
 from .source import unknown_keys
@@ -207,7 +208,7 @@ def dump_deployments(
     if exported_at is None:
         exported_at = datetime.now(timezone.utc)
     header = (
-        f"# Exported from GPUStack v{__version__} "
+        f"# Exported from {branding.PRODUCT_NAME} v{__version__} "
         f"at {exported_at:%Y-%m-%dT%H:%M:%SZ}\n"
     )
     entries = [

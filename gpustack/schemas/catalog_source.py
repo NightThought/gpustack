@@ -9,6 +9,7 @@ from sqlalchemy import JSON, Column, UniqueConstraint
 from sqlmodel import SQLModel, Field as SQLField
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from gpustack import branding
 from gpustack.mixins import BaseModelMixin
 from .models import Model
 from .model_sets import Catalog, DraftModel, ModelSet, ModelSpec
@@ -177,7 +178,7 @@ def _load_catalog(raw: Optional[str], strict: bool = False) -> Catalog:
             raise ValueError(f"unknown catalog field(s): {listed}")
         logger.warning(
             f"Ignoring catalog field(s) this version does not know: {listed}. "
-            f"The document was published for a newer GPUStack."
+            f"The document was published for a newer {branding.PRODUCT_NAME}."
         )
 
     # Nothing surviving is not an empty catalog; the caller would clear the table.

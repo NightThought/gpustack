@@ -8,6 +8,7 @@ from sqlalchemy import JSON, Column, Text
 from sqlmodel import SQLModel, Field as SQLField
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from gpustack import branding
 from gpustack_runner import (
     BackendRunners,
     Runners,
@@ -277,7 +278,7 @@ def _parse_runner_json(
             raise ValueError(f"unknown runner field(s): {listed}")
         logger.warning(
             f"Ignoring runner field(s) this version does not know: {listed}. "
-            f"The document was published for a newer GPUStack."
+            f"The document was published for a newer {branding.PRODUCT_NAME}."
         )
     return entries
 

@@ -22,6 +22,7 @@ from sqlalchemy import JSON, Column, UniqueConstraint
 from sqlmodel import SQLModel, Field as SQLField
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from gpustack import branding
 from gpustack.mixins import BaseModelMixin
 
 from .cache_providers import (
@@ -250,7 +251,7 @@ def load_cache_providers_document(
             raise ValueError(f"unknown cache provider field(s): {listed}")
         logger.warning(
             f"Ignoring cache provider field(s) this version does not know: "
-            f"{listed}. The document was written for a different GPUStack."
+            f"{listed}. The document was written for a different {branding.PRODUCT_NAME}."
         )
 
     # Nothing surviving is not an empty catalog; the caller would serve none.

@@ -1,10 +1,10 @@
 # Installation via Helm
 
-Since v2.2.0, GPUStack can be deployed on Kubernetes with an in-cluster [Higress](https://higress.io/) API gateway using the official Helm chart.
+Since v2.2.0, OriginHub can be deployed on Kubernetes with an in-cluster [Higress](https://higress.io/) API gateway using the official Helm chart.
 
 !!! note
 
-    Deploying GPUStack on Kubernetes with Higress is currently considered **experimental**. Review the [limitations](#limitations) before proceeding.
+    Deploying OriginHub on Kubernetes with Higress is currently considered **experimental**. Review the [limitations](#limitations) before proceeding.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ Since v2.2.0, GPUStack can be deployed on Kubernetes with an in-cluster [Higress
 | ---------- | ---------- |
 | Helm       | >= v3.18.4 |
 | Kubernetes | >= v1.30.0 |
-| GPUStack   | >= v2.2.0  |
+| OriginHub   | >= v2.2.0  |
 
 In addition:
 
@@ -21,9 +21,9 @@ In addition:
 
 ## Limitations
 
-- The GPUStack server is deployed as a `StatefulSet` and currently does **not** support more than one replica.
+- The OriginHub server is deployed as a `StatefulSet` and currently does **not** support more than one replica.
 - By default, the bundled embedded `PostgreSQL` database is used. It is recommended to specify an external database via `server.externalDatabaseURL` for production.
-- Higress plugins are served by a dedicated `gpustack/higress-plugins` Deployment installed alongside GPUStack. The Higress gateway downloads plugins from this service on restart; if the service is unavailable, gateway startup is blocked until the plugins become accessible.
+- Higress plugins are served by a dedicated `gpustack/higress-plugins` Deployment installed alongside OriginHub. The Higress gateway downloads plugins from this service on restart; if the service is unavailable, gateway startup is blocked until the plugins become accessible.
 - The bundled `higress-core` sub-chart deploys Higress as the cluster's ingress controller. If another ingress controller is already running, set `higress-core.enabled=false` and point `gateway.ingressClassname` at an existing Higress instance.
 
 ## Install k3s (optional)
@@ -42,9 +42,9 @@ Verify the setup:
 kubectl version
 ```
 
-## Install GPUStack with Helm
+## Install OriginHub with Helm
 
-The chart is published as an OCI artifact on Docker Hub at `oci://registry-1.docker.io/gpustack/gpustack-chart`. The chart version tracks the GPUStack release (e.g. chart `2.2.0` ships GPUStack `v2.2.0`).
+The chart is published as an OCI artifact on Docker Hub at `oci://registry-1.docker.io/gpustack/gpustack-chart`. The chart version tracks the OriginHub release (e.g. chart `2.2.0` ships OriginHub `v2.2.0`).
 
 Install the latest stable release. When `--version` is omitted, Helm resolves the newest stable chart version automatically and skips dev/pre-release builds:
 
@@ -53,7 +53,7 @@ helm install gpustack oci://registry-1.docker.io/gpustack/gpustack-chart \
   --namespace gpustack-system --create-namespace
 ```
 
-To pin a specific version, append `--version <chart-version>` (the chart version matches the GPUStack release, e.g. `2.2.0`):
+To pin a specific version, append `--version <chart-version>` (the chart version matches the OriginHub release, e.g. `2.2.0`):
 
 ```bash
 helm install gpustack oci://registry-1.docker.io/gpustack/gpustack-chart \
@@ -61,7 +61,7 @@ helm install gpustack oci://registry-1.docker.io/gpustack/gpustack-chart \
   --version <chart-version>
 ```
 
-By default, the `higress-core` sub-chart is enabled and deployed alongside GPUStack. If you already have Higress installed in your cluster, disable the bundled Higress and point GPUStack at your existing instance:
+By default, the `higress-core` sub-chart is enabled and deployed alongside OriginHub. If you already have Higress installed in your cluster, disable the bundled Higress and point OriginHub at your existing instance:
 
 ```bash
 helm install gpustack oci://registry-1.docker.io/gpustack/gpustack-chart \
@@ -86,7 +86,7 @@ helm install gpustack ./gpustack-chart \
 
 ### Installing Higress Separately
 
-If you set `higress-core.enabled=false`, install a compatible Higress instance before deploying GPUStack:
+If you set `higress-core.enabled=false`, install a compatible Higress instance before deploying OriginHub:
 
 ```bash
 # Add the Higress Helm repository
@@ -108,7 +108,7 @@ kubectl get ingressclass higress
 
 For Higress customization, refer to the [Higress documentation](https://higress.cn/en/docs/latest/ops/deploy-by-helm).
 
-## Accessing GPUStack
+## Accessing OriginHub
 
 Wait for the server pod to become ready:
 
@@ -123,7 +123,7 @@ kubectl exec -it -n gpustack-system gpustack-server-0 -- \
   cat /var/lib/gpustack/initial_admin_password
 ```
 
-If you did not set `server.ingress.hostname`, obtain the GPUStack UI address from the ingress:
+If you did not set `server.ingress.hostname`, obtain the OriginHub UI address from the ingress:
 
 ```bash
 kubectl get ingress -n gpustack-system gpustack \
@@ -169,7 +169,7 @@ Alternatively, add GPU clusters and worker nodes through the UI on the **Cluster
 
 ### Using an External Database
 
-By default GPUStack uses the embedded PostgreSQL database. To use an external PostgreSQL or MySQL database, set `server.externalDatabaseURL`:
+By default OriginHub uses the embedded PostgreSQL database. To use an external PostgreSQL or MySQL database, set `server.externalDatabaseURL`:
 
 ```bash
 helm install gpustack oci://registry-1.docker.io/gpustack/gpustack-chart \
@@ -205,7 +205,7 @@ helm install gpustack oci://registry-1.docker.io/gpustack/gpustack-chart \
 
 ### Pulling Images From a Private Registry
 
-To pull all images (GPUStack server/worker, higress-plugins, and the bundled higress-core gateway/controller/pilot) from a mirrored private registry, override `global.hub`. This relies on Helm's global-values propagation, so a single setting covers every image:
+To pull all images (OriginHub server/worker, higress-plugins, and the bundled higress-core gateway/controller/pilot) from a mirrored private registry, override `global.hub`. This relies on Helm's global-values propagation, so a single setting covers every image:
 
 ```bash
 helm install gpustack oci://registry-1.docker.io/gpustack/gpustack-chart \
@@ -259,7 +259,7 @@ The most commonly used parameters are listed below. For the complete and authori
 | `server.dataVolume.size`               | `100Gi`                  | Server data volume size (PVC).                                            |
 | `server.apiPort`                       | `30080`                  | API service port.                                                         |
 | `server.metricsPort`                   | `10161`                  | Server metrics port.                                                      |
-| `server.environmentConfig`             | `{}`                     | Extra environment variables for the GPUStack server.                      |
+| `server.environmentConfig`             | `{}`                     | Extra environment variables for the OriginHub server.                      |
 | `server.nodeSelector`                  | `{}`                     | Server pod nodeSelector; replaces `global.nodeSelector` when non-empty.    |
 | `gateway.ingressClassname`             | `higress`                | Higress IngressClass name; enables in-cluster gateway mode when found.     |
 | `higress-core.enabled`                 | `true`                   | Deploy the bundled Higress gateway; disable if already installed.          |
@@ -270,7 +270,7 @@ The most commonly used parameters are listed below. For the complete and authori
 | `worker.port`                          | `10150`                  | Worker service port.                                                      |
 | `worker.metricsPort`                   | `10151`                  | Worker metrics port.                                                      |
 | `worker.dataDir`                       | `/var/lib/gpustack`      | Host path mounted at `/var/lib/gpustack` inside each worker pod.           |
-| `worker.environmentConfig`             | `{}`                     | Extra environment variables for the GPUStack worker.                      |
+| `worker.environmentConfig`             | `{}`                     | Extra environment variables for the OriginHub worker.                      |
 
 ## Uninstallation
 

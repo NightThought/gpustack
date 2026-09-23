@@ -38,11 +38,20 @@ function Get-UI {
     $null = Remove-Item -Recurse -Force $uiPath -ErrorAction Ignore
     $null = New-Item -ItemType Directory -Path $tmpUIPath
 
+    # The web console is downloaded here, not compiled, so this URL decides which
+    # console a Windows install serves. Keep it in sync with hack/install.sh:
+    # the same reasoning about provenance and defaults lives there. Set
+    # UI_RELEASE_BASE_URL only once this fork publishes its own console artifacts.
+    $uiBaseURL = "https://gpustack-ui-1303613262.cos.accelerate.myqcloud.com/releases"
+    if ($env:UI_RELEASE_BASE_URL) {
+        $uiBaseURL = $env:UI_RELEASE_BASE_URL.TrimEnd('/')
+    }
+
     GPUStack.Log.Info "downloading '$tag' UI assets"
 
     try {
         $tmpFile = "$tmpPath/ui.tar.gz"
-        $url = "https://gpustack-ui-1303613262.cos.accelerate.myqcloud.com/releases/$tag.tar.gz"
+        $url = "$uiBaseURL/$tag.tar.gz"
         DownloadWithRetries -url $url -outFile $tmpFile -maxRetries 3
 
         # For git action's bug, can't use tar directly.
@@ -60,7 +69,7 @@ function Get-UI {
 
         try {
             $tmpFile = "$tmpPath/ui.tar.gz"
-            $url = "https://gpustack-ui-1303613262.cos.accelerate.myqcloud.com/releases/$defaultTag.tar.gz"
+            $url = "$uiBaseURL/$defaultTag.tar.gz"
             DownloadWithRetries -url $url -outFile $tmpFile -maxRetries 3
             tar -xzf $tmpFile -C "$tmpUIPath"
         }

@@ -25,6 +25,7 @@ from sqlmodel import (
 import sqlalchemy as sa
 from typing import TYPE_CHECKING
 
+from gpustack import branding
 from gpustack.schemas.config import (
     SensitivePredefinedConfig,
     PredefinedConfigNoDefaults,
@@ -216,7 +217,8 @@ class GpuInstanceOptions(BaseModel):
             "Whether the operator auto-derives InstanceTypes (and their backing "
             "ClusterQueues) from node hardware. Mirrors the operator's "
             "``instance-type-derived-from-node`` setting (operator default: "
-            "true). Unset means GPUStack does not manage it and the cluster's "
+            "true). "
+            f"Unset means {branding.PRODUCT_NAME} does not manage it and the cluster's "
             "own value stands."
         ),
     )
@@ -227,7 +229,7 @@ class GpuInstanceOptions(BaseModel):
             "Whether one node may surface both an accelerated and a CPU-only "
             "InstanceType. Mirrors the operator's "
             "``instance-type-mixed-on-node`` setting (operator default: true). "
-            "Unset means GPUStack does not manage it and the cluster's own "
+            f"Unset means {branding.PRODUCT_NAME} does not manage it and the cluster's own "
             "value stands."
         ),
     )
@@ -400,11 +402,11 @@ class K8sOptions(BaseModel):
         default=None,
         alias="helmValues",
         description=(
-            "Values passed to the GPUStack chart the registration manifest "
+            "Values passed to the platform's Helm chart the registration manifest "
             "installs, merged over the ones the server derives from this "
             "cluster. Keys are the chart's own, verbatim — see its values.yaml "
             "and, for anything under `gpustack-operator`, the operator chart's.\n\n"
-            "Nothing is mirrored into a GPUStack-shaped schema here on purpose: "
+            "Nothing is mirrored into a platform-shaped schema here on purpose: "
             "the chart and its sub-charts carry a large surface that moves with "
             "their releases, and a field-by-field copy would have to be kept in "
             "lockstep with it forever.\n\n"

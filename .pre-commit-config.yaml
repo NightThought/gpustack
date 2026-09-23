@@ -1,4 +1,21 @@
 repos:
+  # Runs the tokenizer-based half of the brand guard, which is the half that
+  # catches a regression in code: a user-visible string literal naming the
+  # upstream product. stdlib-only, so no dependencies are installed into the hook
+  # environment.
+  #
+  # It is deliberately not the whole guard. `hack/check-brand.sh` also checks the
+  # legal files, the compatibility surfaces and the third-party asset counts, and
+  # it is a bash script — running it here would break `git commit` on Windows,
+  # where there is no bash. That half runs in `make lint`, therefore in CI.
+  - repo: local
+    hooks:
+      - id: brand-guard
+        name: brand guard (user-visible strings)
+        entry: python hack/check_brand.py
+        language: python
+        pass_filenames: false
+        always_run: true
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:

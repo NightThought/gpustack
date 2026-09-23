@@ -16,6 +16,7 @@ import secrets
 import tenacity
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from gpustack import branding
 from gpustack.gpu_instances import sync_builtin_templates_to_db
 from gpustack.logging import setup_logging
 from gpustack.schemas.users import (
@@ -273,7 +274,7 @@ class Server:
         return self._config
 
     async def start(self):
-        logger.info("Starting GPUStack server.")
+        logger.info(f"Starting {branding.PRODUCT_NAME} server.")
 
         if self._config.external_auth_insecure_skip_tls_verify:
             logger.warning(
@@ -342,15 +343,19 @@ class Server:
 
         setup_logging()
         logger.info(f"Gateway mode: {self._config.gateway_mode.value}.")
-        serving_api_message = f"Serving GPUStack API on {config.host}:{config.port}."
+        serving_api_message = (
+            f"Serving {branding.PRODUCT_NAME} API on {config.host}:{config.port}."
+        )
         if self._config.gateway_mode == GatewayModeEnum.embedded:
             logger.debug(serving_api_message)
             logger.info(
-                f"GPUStack Server will serve on 0.0.0.0:{self._config.get_gateway_port()}."
+                f"{branding.PRODUCT_NAME} Server will serve on "
+                f"0.0.0.0:{self._config.get_gateway_port()}."
             )
             if self._config.get_tls_secret_name() is not None:
                 logger.info(
-                    f"GPUStack Server will serve TLS on 0.0.0.0:{self._config.tls_port}."
+                    f"{branding.PRODUCT_NAME} Server will serve TLS on "
+                    f"0.0.0.0:{self._config.tls_port}."
                 )
         else:
             logger.info(serving_api_message)
@@ -890,7 +895,9 @@ class Server:
         ports = [self._config.port]
         if self._config.get_tls_secret_name() is not None:
             ports.append(self._config.tls_port)
-        logger.info(f"Waiting for ports {ports} of GPUStack to be ready...")
+        logger.info(
+            f"Waiting for ports {ports} of {branding.PRODUCT_NAME} to be ready..."
+        )
         try:
             # wait for gateway ready for about 60s
             await self._check_ports_ready(*ports)
@@ -905,7 +912,7 @@ class Server:
                 e,
             )
             return
-        logger.info("GPUStack Server is ready.")
+        logger.info(f"{branding.PRODUCT_NAME} Server is ready.")
 
     @tenacity.retry(
         stop=tenacity.stop_after_attempt(GATEWAY_PORT_CHECK_RETRY_COUNT),
@@ -1367,7 +1374,7 @@ class Server:
         hashed_suffix = secrets.token_hex(6)
         default_cluster = Cluster(
             name="Default Cluster",
-            description="The default cluster for GPUStack",
+            description=f"The default cluster for {branding.PRODUCT_NAME}",
             provider=provider,
             state=ClusterStateEnum.READY,
             hashed_suffix=hashed_suffix,

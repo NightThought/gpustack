@@ -10,6 +10,7 @@ from prometheus_client.core import (
     InfoMetricFamily,
 )
 import uvicorn
+from gpustack import branding
 from gpustack.config.config import Config
 from gpustack.exporter.bus_metrics import BusMetricsCollector
 from gpustack.exporter.billing_metrics import BillingMetricsCollector
@@ -354,7 +355,8 @@ class MetricExporter(Collector):
 
             # Start FastAPI server
             app = FastAPI(
-                title="GPUStack Metrics Exporter", response_model_exclude_unset=True
+                title=f"{branding.PRODUCT_NAME} Metrics Exporter",
+                response_model_exclude_unset=True,
             )
 
             @app.get("/metrics")

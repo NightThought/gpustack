@@ -2,19 +2,19 @@
 
 ## Prerequisites
 
-**GPUStack server:**
+**OriginHub server:**
 
 - [Docker](https://docs.docker.com/engine/install/) must be installed. Docker Desktop (Windows and macOS) is also supported.
 
-**GPUStack workers:**
+**OriginHub workers:**
 
 - [Docker](https://docs.docker.com/engine/install/) must be installed. Docker Desktop is **not** supported.
-- Only Linux is supported for GPUStack worker nodes. If you use Windows, consider using WSL2 and avoid using Docker Desktop. macOS is not supported for GPUStack worker nodes.
+- Only Linux is supported for OriginHub worker nodes. If you use Windows, consider using WSL2 and avoid using Docker Desktop. macOS is not supported for OriginHub worker nodes.
 - Ensure the appropriate GPU drivers and container toolkits are installed for your hardware. See the [Installation Requirements](./requirements.md) for details.
 
-## Install GPUStack Server
+## Install OriginHub Server
 
-Run the following command to install and start the GPUStack server using Docker:
+Run the following command to install and start the OriginHub server using Docker:
 
 ```bash
 sudo docker run -d --name gpustack \
@@ -26,17 +26,17 @@ sudo docker run -d --name gpustack \
 
 !!! note
 
-    GPUStack v2 uses a single unified container image for all GPU device types.
+    OriginHub v2 uses a single unified container image for all GPU device types.
 
 ## Startup
 
-Check the GPUStack container logs:
+Check the OriginHub container logs:
 
 ```bash
 sudo docker logs -f gpustack
 ```
 
-Once the server is up, open `http://your_host_ip` in a browser to access the GPUStack UI.
+Once the server is up, open `http://your_host_ip` in a browser to access the OriginHub UI.
 
 Log in with username `admin` and the default password. Retrieve the initial password with:
 
@@ -51,7 +51,7 @@ Please follow the UI instructions on the `Clusters` and `Workers` pages to add G
 
 ## Custom Configuration
 
-The following sections describe examples of custom configuration options when starting the GPUStack server container. For a full list of available options, refer to the [CLI Reference](../cli-reference/start.md).
+The following sections describe examples of custom configuration options when starting the OriginHub server container. For a full list of available options, refer to the [CLI Reference](../cli-reference/start.md).
 
 ### Enable HTTPS with Custom Certificate
 
@@ -100,7 +100,7 @@ replacing an injected bootstrap CA does not retain earlier injected bundles.
 
 ### Using an External Database
 
-By default, GPUStack uses an embedded PostgreSQL database. To use an external database such as PostgreSQL or MySQL, set the `GPUSTACK_DATABASE_URL` environment variable or use the `--database-url` argument when starting the GPUStack container. See [Database Requirements](requirements.md#database-requirements) for the list of compatible databases and verified versions.
+By default, OriginHub uses an embedded PostgreSQL database. To use an external database such as PostgreSQL or MySQL, set the `GPUSTACK_DATABASE_URL` environment variable or use the `--database-url` argument when starting the OriginHub container. See [Database Requirements](requirements.md#database-requirements) for the list of compatible databases and verified versions.
 
 ```diff
  sudo docker run -d --name gpustack \
@@ -125,7 +125,7 @@ sudo docker run -d --name gpustack \
 
 ### Additional Trusted CAs
 
-If GPUStack needs to communicate with services that use certificates issued by a private or corporate CA (e.g., a self-hosted Identity Provider, a Hugging Face mirror, or an internal API endpoint), mount the CA certificate into the container under `/usr/local/share/ca-certificates/`. GPUStack will automatically import the mounted CA certificates during startup and add them to the system trust store.
+If OriginHub needs to communicate with services that use certificates issued by a private or corporate CA (e.g., a self-hosted Identity Provider, a Hugging Face mirror, or an internal API endpoint), mount the CA certificate into the container under `/usr/local/share/ca-certificates/`. OriginHub will automatically import the mounted CA certificates during startup and add them to the system trust store.
 
 ```diff
  sudo docker run -d --name gpustack \
@@ -166,13 +166,13 @@ git clone -b "$LATEST_TAG" https://github.com/gpustack/gpustack.git
 cd gpustack/docker-compose
 ```
 
-Start the GPUStack server:
+Start the OriginHub server:
 
 ```bash
 sudo docker compose -f docker-compose.server.yaml up -d
 ```
 
-Once the server is up, open `http://your_host_ip` in a browser to access the GPUStack UI.
+Once the server is up, open `http://your_host_ip` in a browser to access the OriginHub UI.
 
 Log in with username `admin` and the default password. Retrieve the initial password with:
 

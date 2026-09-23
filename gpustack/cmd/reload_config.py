@@ -5,6 +5,7 @@ import requests
 from typing import Dict, Any
 
 from gpustack import __version__, __git_commit__
+from gpustack import branding
 from gpustack.api.auth import SESSION_COOKIE_NAME
 from gpustack.cmd.local_auth import (
     add_local_auth_arguments,
@@ -42,8 +43,11 @@ class OptionalBoolAction(argparse.Action):
 def setup_reload_config_cmd(subparsers: argparse._SubParsersAction):
     parser: argparse.ArgumentParser = subparsers.add_parser(
         "reload-config",
-        help="Reload GPUStack configuration.",
-        description=("Reload GPUStack configuration via --set, --file, or --list."),
+        help=f"Reload {branding.PRODUCT_NAME} configuration.",
+        description=(
+            f"Reload {branding.PRODUCT_NAME} configuration via --set, --file, "
+            "or --list."
+        ),
     )
 
     parser.add_argument(
@@ -86,13 +90,13 @@ def setup_reload_config_cmd(subparsers: argparse._SubParsersAction):
     parser.add_argument(
         "--server-port",
         type=int,
-        help="Port of the GPUStack API server to target.",
+        help=f"Port of the {branding.PRODUCT_NAME} API server to target.",
         default=get_gpustack_env("API_PORT"),
     )
     parser.add_argument(
         "--worker-port",
         type=int,
-        help="Port of the GPUStack worker to target.",
+        help=f"Port of the {branding.PRODUCT_NAME} worker to target.",
         default=get_gpustack_env("WORKER_PORT"),
     )
 
@@ -102,7 +106,9 @@ def setup_reload_config_cmd(subparsers: argparse._SubParsersAction):
 def run(args):
     try:
         logger.info("Starting configuration reload...")
-        logger.info(f"GPUStack version: {__version__} ({__git_commit__})")
+        logger.info(
+            f"{branding.PRODUCT_NAME} version: {__version__} ({__git_commit__})"
+        )
         if handle_list_mode(args):
             return
 

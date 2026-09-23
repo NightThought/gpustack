@@ -108,7 +108,7 @@ class WorkerConfig(PredefinedConfig):
 
 
 class Config(WorkerConfig, BaseSettings):
-    """A class used to define GPUStack configuration.
+    """A class used to define OriginHub configuration.
 
     Attributes:
         port: Port to bind the server to. Default is 80.
@@ -169,7 +169,7 @@ class Config(WorkerConfig, BaseSettings):
         gateway_kubeconfig: Path to the kubeconfig file for gateway. Only used when gateway_mode is 'external'.
         gateway_concurrency: Number of concurrent connections for the embedded gateway. Default is 16.
         gateway_namespace: The namespace where the gateway component is deployed.
-        namespace: Kubernetes namespace for GPUStack to deploy gateway routing rules and model instances.
+        namespace: Kubernetes namespace for OriginHub to deploy gateway routing rules and model instances.
         disable_builtin_observability: Disable embedded Grafana and Prometheus services.
         grafana_url: Base URL for Grafana UI used by redirects and proxying. When unset, defaults to the embedded Grafana URL unless builtin observability is disabled.
         grafana_worker_dashboard_uid: Grafana dashboard UID for worker dashboard.

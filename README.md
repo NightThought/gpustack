@@ -1,21 +1,19 @@
-<br>
+<h1 align="center">OriginHub</h1>
 
 <p align="center">
-    <img alt="GPUStack" src="https://raw.githubusercontent.com/gpustack/gpustack/main/docs/assets/gpustack-logo.png" width="300px"/>
+  AI infrastructure and LLM inference serving platform
 </p>
-<br>
 
 <p align="center">
-    <a href="https://docs.gpustack.ai" target="_blank">
-        <img alt="Documentation" src="https://img.shields.io/badge/Docs-GPUStack-blue?logo=readthedocs&logoColor=white"></a>
-    <a href="./LICENSE" target="_blank">
-        <img alt="License" src="https://img.shields.io/github/license/gpustack/gpustack?logo=github&logoColor=white&label=License&color=blue"></a>
-    <a href="https://discord.gg/VXYJzuaqwD" target="_blank">
-        <img alt="Discord" src="https://img.shields.io/badge/Discord-GPUStack-blue?logo=discord&logoColor=white"></a>
-    <a href="https://twitter.com/intent/follow?screen_name=gpustack_ai" target="_blank">
-        <img alt="Follow on X(Twitter)" src="https://img.shields.io/twitter/follow/gpustack_ai?logo=X"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue"></a>
 </p>
-<br>
+
+> **Modified from [GPUStack](https://github.com/gpustack/gpustack).**
+> OriginHub is a derivative work of GPUStack, licensed under the Apache License,
+> Version 2.0. Copyright (c) 2024-2026 The GPUStack authors. See
+> [NOTICE](./NOTICE) for attribution and third-party components, and
+> [CHANGES.md](./CHANGES.md) for what this fork changed. This project is not
+> endorsed by, sponsored by, or affiliated with the GPUStack project.
 
 <p align="center">
   <a href="./README.md">English</a> |
@@ -27,39 +25,39 @@
 
 ## Overview
 
-GPUStack is an open-source GPU cluster manager for AI model serving and GPU instance provisioning. It configures and orchestrates inference engines — vLLM, SGLang, TensorRT-LLM, or your own — and lets you launch SSH-accessible GPU instances on demand. Its core features include:
+OriginHub is an open-source GPU cluster manager for AI model serving and GPU instance provisioning. It configures and orchestrates inference engines — vLLM, SGLang, TensorRT-LLM, or your own — and lets you launch SSH-accessible GPU instances on demand. Its core features include:
 - **Multi-Cluster GPU Management.** Manages GPU clusters across multiple environments. This includes on-premises servers, Kubernetes clusters, and cloud providers.
 - **Pluggable Inference Engines.** Automatically configures high-performance inference engines such as vLLM, SGLang, and TensorRT-LLM. You can also add custom inference engines as needed.
-- **Day 0 Model Support.** GPUStack's pluggable engine architecture enables you to deploy new models on the day they are released.
-- **Performance-Optimized Configurations.** Offers pre-tuned modes for low latency or high throughput. GPUStack supports extended KV cache systems like LMCache and HiCache to reduce TTFT. It also includes built-in support for speculative decoding methods such as EAGLE3, MTP, and N-grams.
+- **Day 0 Model Support.** OriginHub's pluggable engine architecture enables you to deploy new models on the day they are released.
+- **Performance-Optimized Configurations.** Offers pre-tuned modes for low latency or high throughput. OriginHub supports extended KV cache systems like LMCache and HiCache to reduce TTFT. It also includes built-in support for speculative decoding methods such as EAGLE3, MTP, and N-grams.
 - **GPU Instances.** Launches SSH-accessible GPU instances on demand for development, fine-tuning, and interactive workloads.
 - **Enterprise-Grade Operations.** Offers support for automated failure recovery, load balancing, monitoring, authentication, and access control.
 
 ## Architecture
 
-GPUStack enables development teams, IT organizations, and service providers to deliver Model-as-a-Service at scale. It supports industry-standard APIs for LLM, voice, image, and video models. The platform includes built-in user authentication and access control, real-time monitoring of GPU performance and utilization, and detailed metering of token usage and API request rates.
+OriginHub enables development teams, IT organizations, and service providers to deliver Model-as-a-Service at scale. It supports industry-standard APIs for LLM, voice, image, and video models. The platform includes built-in user authentication and access control, real-time monitoring of GPU performance and utilization, and detailed metering of token usage and API request rates.
 
-The figure below illustrates how a single GPUStack server can manage multiple GPU clusters across both on-premises and cloud environments. The GPUStack scheduler allocates GPUs to maximize resource utilization and selects the appropriate inference engines for optimal performance. Administrators also gain full visibility into system health and metrics through integrated Grafana and Prometheus dashboards.
+The figure below illustrates how a single OriginHub server can manage multiple GPU clusters across both on-premises and cloud environments. The OriginHub scheduler allocates GPUs to maximize resource utilization and selects the appropriate inference engines for optimal performance. Administrators also gain full visibility into system health and metrics through integrated Grafana and Prometheus dashboards.
 
 ![gpustack-v2-architecture](docs/assets/gpustack-v2-architecture.png)
 
 ## Cluster Visibility at a Glance
 
-The GPU Cluster Topology view in [GPUStack Enterprise](https://gpustack.ai/enterprise/) provides a live, bird's-eye view of your entire fleet — every worker, GPU, and model deployment in one place, with real-time utilization, allocation, and health status.
+The GPU Cluster Topology view provides a live, bird's-eye view of your entire fleet — every worker, GPU, and model deployment in one place, with real-time utilization, allocation, and health status.
 
 ![gpustack-cluster-topology](docs/assets/cluster-topology.png)
 
 ## Optimized Inference Performance
 
-GPUStack's automated engine selection and parameter optimization deliver strong inference performance out of the box. The following figure shows throughput improvements over default vLLM configurations:
+OriginHub's automated engine selection and parameter optimization deliver strong inference performance out of the box. The following figure shows throughput improvements over default vLLM configurations:
 
 ![h200-throughput-comparison](docs/assets/h200-throughput-comparison.png)
 
-For detailed benchmarking methods and results, visit our [Inference Performance Lab](https://docs.gpustack.ai/latest/performance-lab/overview/).
+For detailed benchmarking methods and results, visit our [Inference Performance Lab](./docs/performance-lab/overview.md).
 
 ## Supported Accelerators
 
-GPUStack supports a wide range of accelerators for AI inference:
+OriginHub supports a wide range of accelerators for AI inference:
 
 - **NVIDIA GPU**
 - **AMD GPU**
@@ -71,20 +69,20 @@ GPUStack supports a wide range of accelerators for AI inference:
 - **Cambricon MLU**
 - **T-Head PPU**
 
-For detailed requirements and setup instructions, see the [Installation Requirements](https://docs.gpustack.ai/latest/installation/requirements/) documentation.
+For detailed requirements and setup instructions, see the [Installation Requirements](./docs/installation/requirements.md) documentation.
 
 ## Quick Start
 
 ### Prerequisites
 
-1. A node with at least one NVIDIA GPU. For other GPU types, please check the guidelines in the GPUStack UI when adding a worker, or refer to the [Installation documentation](https://docs.gpustack.ai/latest/installation/requirements/) for more details.
+1. A node with at least one NVIDIA GPU. For other GPU types, please check the guidelines in the OriginHub UI when adding a worker, or refer to the [Installation documentation](./docs/installation/requirements.md) for more details.
 2. Ensure the NVIDIA driver, [Docker](https://docs.docker.com/engine/install/) and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) are installed on the worker node.
-3. (Optional) A CPU node for hosting the GPUStack server. The GPUStack server does not require a GPU and can run on a CPU-only machine. [Docker](https://docs.docker.com/engine/install/) must be installed. Docker Desktop (for Windows and macOS) is also supported. If no dedicated CPU node is available, the GPUStack server can be installed on the same machine as a GPU worker node.
-4. Only Linux is supported for GPUStack worker nodes. If you use Windows, consider using WSL2 and avoid using Docker Desktop. macOS is not supported for GPUStack worker nodes.
+3. (Optional) A CPU node for hosting the OriginHub server. The OriginHub server does not require a GPU and can run on a CPU-only machine. [Docker](https://docs.docker.com/engine/install/) must be installed. Docker Desktop (for Windows and macOS) is also supported. If no dedicated CPU node is available, the OriginHub server can be installed on the same machine as a GPU worker node.
+4. Only Linux is supported for OriginHub worker nodes. If you use Windows, consider using WSL2 and avoid using Docker Desktop. macOS is not supported for OriginHub worker nodes.
 
-### Install GPUStack
+### Install OriginHub
 
-Run the following command to install and start the GPUStack server using Docker:
+Run the following command to install and start the OriginHub server using Docker:
 
 ```bash
 sudo docker run -d --name gpustack \
@@ -109,23 +107,23 @@ sudo docker run -d --name gpustack \
 ```
 </details>
 
-Check the GPUStack startup logs:
+Check the OriginHub startup logs:
 
 ```bash
 sudo docker logs -f gpustack
 ```
 
-After GPUStack starts, run the following command to get the default admin password:
+After OriginHub starts, run the following command to get the default admin password:
 
 ```bash
 sudo docker exec gpustack cat /var/lib/gpustack/initial_admin_password
 ```
 
-Open your browser and navigate to `http://your_host_ip` to access the GPUStack UI. Use the default username `admin` and the password you retrieved above to log in.
+Open your browser and navigate to `http://your_host_ip` to access the OriginHub UI. Use the default username `admin` and the password you retrieved above to log in.
 
 ### Set Up a GPU Cluster
 
-1. On the GPUStack UI, navigate to the `Clusters` page.
+1. On the OriginHub UI, navigate to the `Clusters` page.
 
 2. Click the `Add Cluster` button.
 
@@ -133,7 +131,7 @@ Open your browser and navigate to `http://your_host_ip` to access the GPUStack U
 
 4. Fill in the `Name` and `Description` fields for the new cluster, then click the `Save` button.
 
-5. Follow the UI guidelines to configure the new worker node. You will need to run a Docker command on the worker node to connect it to the GPUStack server. The command will look similar to the following:
+5. Follow the UI guidelines to configure the new worker node. You will need to run a Docker command on the worker node to connect it to the OriginHub server. The command will look similar to the following:
 
     ```bash
     sudo docker run -d --name gpustack-worker \
@@ -149,13 +147,13 @@ Open your browser and navigate to `http://your_host_ip` to access the GPUStack U
           --advertise-address 192.168.1.2
     ```
 
-6. Execute the command on the worker node to connect it to the GPUStack server.
+6. Execute the command on the worker node to connect it to the OriginHub server.
 
-7. After the worker node connects successfully, it will appear on the `Workers` page in the GPUStack UI.
+7. After the worker node connects successfully, it will appear on the `Workers` page in the OriginHub UI.
 
 ### Deploy a Model
 
-1. Navigate to the `Catalog` page in the GPUStack UI.
+1. Navigate to the `Catalog` page in the OriginHub UI.
 
 2. Select the `Qwen3.5-0.8B` model from the list of available models.
 
@@ -163,7 +161,7 @@ Open your browser and navigate to `http://your_host_ip` to access the GPUStack U
 
 3. After the deployment compatibility checks pass, click the `Save` button to deploy the model.
 
-4. GPUStack will start downloading the model files and deploying the model. When the deployment status shows `Running`, the model has been deployed successfully.
+4. OriginHub will start downloading the model files and deploying the model. When the deployment status shows `Running`, the model has been deployed successfully.
 
 ![model is running](docs/assets/quick-start/model-running.png)
 
@@ -179,11 +177,11 @@ Open your browser and navigate to `http://your_host_ip` to access the GPUStack U
 
 3. Copy the generated API key and save it somewhere safe. Please note that you can only see it once on creation.
 
-4. You can now use the API key to access the OpenAI-compatible API endpoints provided by GPUStack. For example, use curl as the following:
+4. You can now use the API key to access the OpenAI-compatible API endpoints provided by OriginHub. For example, use curl as the following:
 
 ```bash
 # Replace `your_api_key` and `your_gpustack_server_url`
-# with your actual API key and GPUStack server URL.
+# with your actual API key and OriginHub server URL.
 export GPUSTACK_API_KEY=your_api_key
 curl http://your_gpustack_server_url/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -206,7 +204,7 @@ curl http://your_gpustack_server_url/v1/chat/completions \
 
 ## Documentation
 
-Please see the [official docs site](https://docs.gpustack.ai) for complete documentation.
+Please see the [official docs site](./docs) for complete documentation.
 
 ## Build
 
@@ -216,11 +214,24 @@ Please see the [official docs site](https://docs.gpustack.ai) for complete docum
 
 ## Contributing
 
-Please read the [Contributing Guide](./docs/contributing.md) if you're interested in contributing to GPUStack.
+Please read the [Contributing Guide](./docs/contributing.md) if you're interested in contributing to OriginHub.
 
-## Join Community
+## Support
 
-Any issues or have suggestions, feel free to join our [Community](https://discord.gg/VXYJzuaqwD) for support.
+Questions, bugs and suggestions go to this fork's [issue tracker](https://github.com/NightThought/gpustack/issues).
+There is no chat community yet; when there is one, it will be linked here rather
+than pointing at a project this build is not part of.
+
+## Acknowledgement
+
+OriginHub is built on the open-source [GPUStack](https://github.com/gpustack/gpustack)
+project, licensed under the Apache License, Version 2.0.
+Copyright (c) 2024-2026 The GPUStack authors.
+
+See [NOTICE](./NOTICE) for the full attribution and for the third-party
+components this product redistributes, and [CHANGES.md](./CHANGES.md) for a
+summary of the modifications made here. Neither this project nor its maintainers
+are endorsed by, sponsored by, or affiliated with the GPUStack project.
 
 ## License
 

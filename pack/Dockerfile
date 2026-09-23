@@ -760,5 +760,18 @@ COPY --chmod=755 pack/entrypoint.sh /usr/bin/entrypoint.sh
 ## KUBE_FEATURE_WatchListClient=false: Disable WatchListClient to avoid potential issues with Kubernetes API server versions that do not support it.
 ENV KUBE_FEATURE_WatchListClient="false"
 
+# License and attribution travel *inside* the image, not only in the repository:
+# an image is a form of distribution, so Apache-2.0 §4(a) requires the recipient
+# to be able to obtain the license from what they actually receive. The labels
+# are what a registry, a vulnerability scanner and an SBOM tool read — this file
+# previously carried none, so nothing identified the image's origin or terms.
+COPY LICENSE NOTICE CHANGES.md /usr/share/doc/originhub/
+LABEL org.opencontainers.image.title="OriginHub" \
+      org.opencontainers.image.description="AI infrastructure and LLM inference serving platform" \
+      org.opencontainers.image.vendor="OriginHub authors" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      dev.originhub.upstream="GPUStack (Apache-2.0), see /usr/share/doc/originhub/NOTICE" \
+      dev.originhub.changes="/usr/share/doc/originhub/CHANGES.md"
+
 WORKDIR /
 ENTRYPOINT [ "/usr/bin/entrypoint.sh" ]

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from gpustack import branding
 from gpustack.api.exceptions import (
     AlreadyExistsException,
     BadRequestException,
@@ -474,7 +475,10 @@ def test_dump_keeps_user_input_and_drops_server_state():
         exported_at=EXPORTED_AT,
     )
 
-    assert text.startswith("# Exported from GPUStack v")
+    # Asserted through the branding constant rather than a literal name: the
+    # header identifies whichever product produced the document, and this is a
+    # rebrandable string.
+    assert text.startswith(f"# Exported from {branding.PRODUCT_NAME} v")
     assert "at 2026-09-07T10:00:00Z\n" in text
     # Each deployment starts at the left margin, never indented into a list.
     assert "\nname: qwen3-8b\n" in text
@@ -1157,7 +1161,9 @@ async def test_import_reports_every_problem_on_its_own_entry(engine, no_gpu_look
         assert errors[3] == ["duplicate name, already used by deployment[1]"]
         assert errors[4] == [
             "Setting the port using --port is not supported. Ports are "
-            "automatically allocated by GPUStack."
+            # The product name in a user-facing message comes from branding, so
+            # the expectation is built the same way rather than hardcoded.
+            f"automatically allocated by {branding.PRODUCT_NAME}."
         ]
         # A name that is not a string is an invalid entry like any other,
         # rather than reaching the lookup and the plan model as itself.

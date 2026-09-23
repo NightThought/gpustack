@@ -1,6 +1,7 @@
 import argparse
 from multiprocessing import freeze_support
 
+from gpustack import branding
 from gpustack.cmd import setup_start_cmd
 from gpustack.cmd.db_migration import setup_migrate_cmd
 from gpustack.cmd.download_tools import setup_download_tools_cmd
@@ -13,7 +14,7 @@ from gpustack.cmd.prerun import setup_prerun_cmd
 
 def main():
     parser = argparse.ArgumentParser(
-        description="GPUStack",
+        description=branding.PRODUCT_NAME,
         conflict_handler="resolve",
         add_help=True,
         formatter_class=lambda prog: argparse.HelpFormatter(

@@ -1,19 +1,19 @@
 # Installation Requirements
 
-This page outlines the software and networking requirements for nodes running GPUStack.
+This page outlines the software and networking requirements for nodes running OriginHub.
 
 ## Operating System Requirements
 
-GPUStack supports most modern Linux distributions on **AMD64** and **ARM64** architectures.
+OriginHub supports most modern Linux distributions on **AMD64** and **ARM64** architectures.
 
 !!! note
 
-    - Installing GPUStack directly via PyPI is not supported. For best compatibility, use the provided Docker images.
+    - Installing OriginHub directly via PyPI is not supported. For best compatibility, use the provided Docker images.
     - The Network Time Protocol (NTP) package must be installed to ensure consistent state synchronization between nodes.
 
 ## Database Requirements
 
-The GPUStack server stores its state in a SQL database. The server container image bundles an embedded PostgreSQL database, which works out of the box without any configuration.
+The OriginHub server stores its state in a SQL database. The server container image bundles an embedded PostgreSQL database, which works out of the box without any configuration.
 
 Alternatively, you can use an external database by setting the `--database-url` argument (or the `GPUSTACK_DATABASE_URL` environment variable). The following databases are compatible:
 
@@ -32,7 +32,7 @@ See [Using an External Database](installation.md#using-an-external-database) for
 
 ## Accelerator Runtime Requirements
 
-GPUStack supports a variety of General-Purpose Accelerators as inference backends, including:
+OriginHub supports a variety of General-Purpose Accelerators as inference backends, including:
 
 - [x] NVIDIA GPU
 - [x] AMD GPU
@@ -44,7 +44,7 @@ GPUStack supports a variety of General-Purpose Accelerators as inference backend
 - [x] Cambricon MLU (Experimental)
 - [x] T-Head PPU (Experimental)
 
-Ensure all required drivers and toolkits are installed before running GPUStack.
+Ensure all required drivers and toolkits are installed before running OriginHub.
 
 ### NVIDIA GPU
 
@@ -55,7 +55,7 @@ Ensure all required drivers and toolkits are installed before running GPUStack.
 
 !!! note "Kubernetes GPU Nodes"
 
-    When the GPUs are provided by Kubernetes nodes, install the driver and toolkit on each node as above, or let the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/overview.html) manage them. If the NVIDIA GPU Operator is already installed, disable its device plugin, GPU Feature Discovery, Node Feature Discovery, MIG Manager, and CDI components, which conflict with GPUStack's device management. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#nvidia) for details.
+    When the GPUs are provided by Kubernetes nodes, install the driver and toolkit on each node as above, or let the [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/overview.html) manage them. If the NVIDIA GPU Operator is already installed, disable its device plugin, GPU Feature Discovery, Node Feature Discovery, MIG Manager, and CDI components, which conflict with OriginHub's device management. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#nvidia) for details.
 
 Run the following commands to verify:
 
@@ -84,7 +84,7 @@ sudo docker info 2>/dev/null | grep -q "nvidia" \
 
 !!! note "Kubernetes GPU Nodes"
 
-    When the GPUs are provided by Kubernetes nodes, install the driver on each node as above, or let the [AMD GPU Operator](https://instinct.docs.amd.com/projects/gpu-operator/en/latest/index.html) manage it. If the AMD GPU Operator is already installed, disable its device plugin, node labeller, bundled Node Feature Discovery, and Kernel Module Management components, which conflict with GPUStack's device management. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#amd) for details.
+    When the GPUs are provided by Kubernetes nodes, install the driver on each node as above, or let the [AMD GPU Operator](https://instinct.docs.amd.com/projects/gpu-operator/en/latest/index.html) manage it. If the AMD GPU Operator is already installed, disable its device plugin, node labeller, bundled Node Feature Discovery, and Kernel Module Management components, which conflict with OriginHub's device management. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#amd) for details.
 
 Run the following commands to verify:
 
@@ -143,7 +143,7 @@ sudo docker info 2>/dev/null | grep -q "ascend" \
 
 !!! note "Kubernetes GPU Nodes"
 
-    When the DCUs are provided by Kubernetes nodes, install the driver and toolkit on each node as above, or let the [Hygon DCU Operator](https://developer.sourcefind.cn/document/7541efc4-54b1-11f1-8265-0242ac150003) manage them. If the Hygon DCU Operator is already installed, disable its device plugin and node labeller components, which conflict with GPUStack's device management. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#hygon) for details.
+    When the DCUs are provided by Kubernetes nodes, install the driver and toolkit on each node as above, or let the [Hygon DCU Operator](https://developer.sourcefind.cn/document/7541efc4-54b1-11f1-8265-0242ac150003) manage them. If the Hygon DCU Operator is already installed, disable its device plugin and node labeller components, which conflict with OriginHub's device management. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#hygon) for details.
 
 Run the following commands to verify:
 
@@ -169,7 +169,7 @@ sudo hy-smi
 
 !!! note "Kubernetes GPU Nodes"
 
-    When the GPUs are provided by Kubernetes nodes, install the driver and SDK on each node as above, or let the [MetaX GPU Operator](https://developer.metax-tech.com/api/client/document/preview/1411/k8s/00_overview.html) manage them. The MetaX GPU Operator's device plugin cannot be disabled, so if the operator is already installed, uninstall it — keeping the driver and SDK on the node — before adding the nodes to GPUStack. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#metax) for details.
+    When the GPUs are provided by Kubernetes nodes, install the driver and SDK on each node as above, or let the [MetaX GPU Operator](https://developer.metax-tech.com/api/client/document/preview/1411/k8s/00_overview.html) manage them. The MetaX GPU Operator's device plugin cannot be disabled, so if the operator is already installed, uninstall it — keeping the driver and SDK on the node — before adding the nodes to OriginHub. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#metax) for details.
 
 Run the following commands to verify:
 
@@ -192,7 +192,7 @@ sudo mx-smi
 
 !!! note "Kubernetes GPU Nodes"
 
-    When the GPUs are provided by Kubernetes nodes, install the driver and toolkit on each node as above, or let the [MT GPU Operator](https://docs.mthreads.com/cloud-native/cloud-native-doc-online/introduction/) manage them. The MT GPU Operator's device plugin cannot be disabled in its default `full` mode, so if the operator is already installed, switch to `core` mode without the device plugin or uninstall the operator — keeping the driver and toolkit on the node — before adding the nodes to GPUStack. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#moore-threads) for details.
+    When the GPUs are provided by Kubernetes nodes, install the driver and toolkit on each node as above, or let the [MT GPU Operator](https://docs.mthreads.com/cloud-native/cloud-native-doc-online/introduction/) manage them. The MT GPU Operator's device plugin cannot be disabled in its default `full` mode, so if the operator is already installed, switch to `core` mode without the device plugin or uninstall the operator — keeping the driver and toolkit on the node — before adding the nodes to OriginHub. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#moore-threads) for details.
 
 Run the following commands to verify:
 
@@ -220,7 +220,7 @@ sudo docker info 2>/dev/null | grep -q "mthreads" \
 
 !!! note "Kubernetes GPU Nodes"
 
-    When the GPUs are provided by Kubernetes nodes, install the driver and toolkit on each node as above, or let the [ix-GPU-Operator](https://developer.iluvatar.com/docs/generaldocs_ix_gpu_operator) manage them. If the ix-GPU-Operator is already installed, disable its device plugin and feature discovery components, which conflict with GPUStack's device management. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#iluvatar) for details.
+    When the GPUs are provided by Kubernetes nodes, install the driver and toolkit on each node as above, or let the [ix-GPU-Operator](https://developer.iluvatar.com/docs/generaldocs_ix_gpu_operator) manage them. If the ix-GPU-Operator is already installed, disable its device plugin and feature discovery components, which conflict with OriginHub's device management. See [Vendor Prerequisites](https://github.com/gpustack/gpustack-operator/blob/main/docs/vendor-prerequisites.md#iluvatar) for details.
 
 Run the following commands to verify:
 
@@ -278,7 +278,7 @@ sudo ppu-smi
 
 ### Connectivity Requirements
 
-The following network connectivity is required for GPUStack to function properly:
+The following network connectivity is required for OriginHub to function properly:
 
 **Server-to-Worker:** The server must be able to reach workers to proxy inference requests.
 
@@ -288,30 +288,30 @@ The following network connectivity is required for GPUStack to function properly
 
 ### Port Requirements
 
-GPUStack uses these ports for communication:
+OriginHub uses these ports for communication:
 
 #### Server Ports
 
 | Port      | Description                                                  |
 | --------- | ------------------------------------------------------------ |
-| TCP 80    | Default port for GPUStack UI and API endpoints               |
-| TCP 443   | Default port for GPUStack UI and API endpoints (TLS enabled) |
+| TCP 80    | Default port for OriginHub UI and API endpoints               |
+| TCP 443   | Default port for OriginHub UI and API endpoints (TLS enabled) |
 | TCP 10161 | Default port for server metrics endpoint                     |
-| TCP 30080 | Default port for GPUStack server internal API                |
+| TCP 30080 | Default port for OriginHub server internal API                |
 | TCP 5432  | Default port for embedded Postgres Database                  |
 
 #### Worker Ports
 
 | Port            | Description                                                    |
 | --------------- | -------------------------------------------------------------- |
-| TCP 10150       | Default port for GPUStack worker                               |
+| TCP 10150       | Default port for OriginHub worker                               |
 | TCP 10151       | Default port for worker metrics endpoint                       |
 | TCP 40000-40063 | Port range for inference services                              |
 | TCP 41000-41999 | Port range for Ray services(vLLM distributed deployment using) |
 
 ##### Distributed vLLM with Ray Ports
 
-When using distributed vLLM, GPUStack will parse the above port range for Ray services,
+When using distributed vLLM, OriginHub will parse the above port range for Ray services,
 and assign them in order as below:
 
 1. GCS server port (the first port of the range)

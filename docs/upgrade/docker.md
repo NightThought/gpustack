@@ -1,14 +1,14 @@
 # Upgrade via Docker
 
-You can upgrade a Docker-based GPUStack installation by pulling a newer image and recreating the containers.
+You can upgrade a Docker-based OriginHub installation by pulling a newer image and recreating the containers.
 
-The following upgrade instructions apply only to GPUStack v2.0 and later.
+The following upgrade instructions apply only to OriginHub v2.0 and later.
 
 For installations prior to v0.7, please refer to the [migration guide](../migration.md).
 
 !!! note
 
-    1. When upgrading, upgrade the GPUStack server first, then upgrade the workers.
+    1. When upgrading, upgrade the OriginHub server first, then upgrade the workers.
 
     2. Please **DO NOT** upgrade from/to the main(dev) version or a release candidate(rc) version, as they may contain breaking changes. Use a fresh installation if you want to try the main or rc versions.
 
@@ -16,7 +16,7 @@ For installations prior to v0.7, please refer to the [migration guide](../migrat
 
     **Backup First:** Before proceeding with an upgrade, it’s strongly recommended to back up your database.
 
-    For default installations that use the embedded PostgreSQL database, stop the GPUStack server and create a backup of the PostgreSQL database directory located inside the container at:
+    For default installations that use the embedded PostgreSQL database, stop the OriginHub server and create a backup of the PostgreSQL database directory located inside the container at:
 
     ```
     /var/lib/gpustack/postgresql/data

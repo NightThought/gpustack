@@ -1,0 +1,74 @@
+OriginHub
+Copyright (c) 2026 OriginHub authors
+
+This product is a derivative work of GPUStack
+(https://github.com/gpustack/gpustack), and includes software developed by
+the GPUStack project:
+
+    Copyright (c) 2024 The GPUStack authors
+    Copyright (c) 2024-2026 The GPUStack authors
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+The complete text of the Apache License, Version 2.0 is distributed with this
+product in the file LICENSE. A summary of the modifications made to the
+upstream work is in the file CHANGES.md.
+
+"GPUStack" and the GPUStack logo are trademarks of their respective owner.
+Their use in this file is limited to attributing the origin of this software as
+the Apache License, Version 2.0 requires. No trademark license is granted or
+implied, and this product is not endorsed by, sponsored by, or affiliated with
+the GPUStack project.
+
+--------------------------------------------------------------------------------
+Third-party components
+
+This product bundles or distributes software from third parties, each under its
+own license. They are not covered by the notice above. At minimum:
+
+  Python runtime dependencies (see pyproject.toml and uv.lock), including but
+  not limited to FastAPI, Starlette, SQLModel, SQLAlchemy, Alembic, Pydantic,
+  Uvicorn, APScheduler, httpx, prometheus-client, argon2-cffi, PyJWT,
+  cryptography, transformers and huggingface-hub.
+
+  gpustack-runtime — the containerized inference deployer, imported by every
+  inference backend. Distributed as a separate package under its own license.
+
+  gpustack-higress-plugins — the gateway wasm plugins and their router,
+  distributed as a separate package under its own license.
+
+  Higress / Envoy components, packaged into the container image as
+  mirrored-higress-{api-server,higress,pilot,gateway}.
+
+  PostgreSQL, bundled in the container image.
+
+  Helm chart subcharts and the operator image referenced by
+  charts/gpustack-chart and pack/Dockerfile.
+
+  Vendor and model icons under static/catalog_icons/ and docs/assets/logos/,
+  which are the trademarks and copyrighted works of their respective owners
+  (including AMD, Huawei/Ascend, Cambricon, Hygon, Iluvatar, MetaX, Moore
+  Threads, NVIDIA, T-Head and various model publishers). They are reproduced
+  solely to identify compatible hardware and model families, unmodified, and no
+  affiliation or endorsement is implied.
+
+  The web console (a separate repository) bundles further third-party
+  components, including UmiJS, React, Ant Design, Monaco Editor and ECharts;
+  see that repository's own lockfile and notices.
+
+For an authoritative, machine-generated inventory of the components actually
+shipped in a given build, generate an SBOM and a license report rather than
+relying on this list:
+
+    syft <image-or-artifact> -o spdx-json > sbom.json
+    uv run pip-licenses --format=plain --with-urls

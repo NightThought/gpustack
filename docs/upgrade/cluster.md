@@ -1,10 +1,10 @@
 # Upgrade a Cluster Deployment
 
-GPUStack organizes worker nodes into [clusters](../user-guide/cluster-management.md). This page covers upgrading the worker deployment of a cluster after the GPUStack server has been upgraded.
+OriginHub organizes worker nodes into [clusters](../user-guide/cluster-management.md). This page covers upgrading the worker deployment of a cluster after the OriginHub server has been upgraded.
 
 !!! note
 
-    1. Upgrade the GPUStack **server** first (see [Upgrade via Docker](docker.md) or [Upgrade via Helm](helm.md)), then upgrade the cluster deployments.
+    1. Upgrade the OriginHub **server** first (see [Upgrade via Docker](docker.md) or [Upgrade via Helm](helm.md)), then upgrade the cluster deployments.
 
     2. Upgrade a worker to the **same version** as the server. Do not mix a `main`(dev) or release candidate(rc) worker image with a stable server.
 
@@ -30,11 +30,11 @@ docker run -d --name gpustack-worker \
 
 !!! tip
 
-    You can obtain an up-to-date `docker run` command for the target version from the GPUStack UI: on the `Clusters` page, open the cluster's `Add Worker` step and copy the generated `Run command`.
+    You can obtain an up-to-date `docker run` command for the target version from the OriginHub UI: on the `Clusters` page, open the cluster's `Add Worker` step and copy the generated `Run command`.
 
 ## Kubernetes Cluster
 
-Workers in a Kubernetes cluster are deployed as DaemonSets, managed by the GPUStack Operator, from the manifests applied during cluster registration. To upgrade, re-apply the manifests generated for the new version:
+Workers in a Kubernetes cluster are deployed as DaemonSets, managed by the OriginHub Operator, from the manifests applied during cluster registration. To upgrade, re-apply the manifests generated for the new version:
 
 1. Go to the `Clusters` page and find the Kubernetes cluster you want to upgrade.
 2. Click the ellipsis button in the operations column, then select `Register Cluster`.

@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from shutil import move
 from typing import List, Dict
+from gpustack import branding
 from gpustack.config.config import Config
 from gpustack.schemas.config import GatewayModeEnum
 from gpustack.envs import MIGRATION_DATA_DIR, DATA_MIGRATION
@@ -31,7 +32,10 @@ logger = logging.getLogger(__name__)
 def setup_prerun_cmd(subparsers: argparse._SubParsersAction):
     parser_server: argparse.ArgumentParser = subparsers.add_parser(
         "prerun",
-        description="Perform pre-run checks and setup s6-overlay configuration for GPUStack.",
+        description=(
+            "Perform pre-run checks and setup s6-overlay configuration for "
+            f"{branding.PRODUCT_NAME}."
+        ),
     )
     # following args are hidden and used for debugging or advanced usage
     parser_server.add_argument(
@@ -50,7 +54,8 @@ def run(args: argparse.Namespace):
         cfg = parse_args(args)
         setup_logging(cfg.debug)
         logger.info(
-            "Starting pre-run checks and setup s6-overlay configuration for GPUStack..."
+            "Starting pre-run checks and setup s6-overlay configuration for "
+            f"{branding.PRODUCT_NAME}..."
         )
         s6_base_path = args.s6_base_path or "/etc/s6-overlay/s6-rc.d"
         enabled_services = determine_enabled_services(cfg)
@@ -275,7 +280,7 @@ def prepare_observability_config(cfg: Config):
         os.getenv("PROMETHEUS_CONFIG_FILE", "/etc/prometheus/prometheus.yml")
     )
     prometheus_config_path.parent.mkdir(parents=True, exist_ok=True)
-    prometheus_config = f"""# Managed by GPUStack
+    prometheus_config = f"""# Managed by {branding.PRODUCT_NAME}
 global:
   scrape_interval: 15s
   scrape_timeout: 10s

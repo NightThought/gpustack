@@ -12,8 +12,8 @@ from functools import reduce
 from math import gcd
 from typing import List, Literal, Optional
 
+from gpustack import branding
 from gpustack.utils.command import find_int_parameter
-
 
 MultinodeShape = Literal["dp_only", "mp_only", "nested"]
 
@@ -133,7 +133,7 @@ def validate_multinode_topology(  # noqa: C901
                 f"be applied uniformly to a heterogeneous worker group "
                 f"(per-node GPUs = {gpu_per_node}, derived per-node DP-Local = "
                 f"{dpl_per_node}). Remove --data-parallel-size-local from "
-                "backend_parameters and let GPUStack derive it per node."
+                f"backend_parameters and let {branding.PRODUCT_NAME} derive it per node."
             )
 
         return ValidatedTopology(

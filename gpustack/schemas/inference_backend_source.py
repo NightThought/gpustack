@@ -7,6 +7,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Field as SQLField
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from gpustack import branding
 from gpustack.mixins import BaseModelMixin
 from gpustack.schemas.inference_backend import (
     InferenceBackend,
@@ -175,7 +176,7 @@ def _parse_backend_yaml(raw: Optional[str], strict: bool = False) -> List[dict]:
             raise ValueError(f"unknown community backend field(s): {listed}")
         logger.warning(
             f"Ignoring community backend field(s) this version does not know: "
-            f"{listed}. The document was published for a newer GPUStack."
+            f"{listed}. The document was published for a newer {branding.PRODUCT_NAME}."
         )
     return data
 

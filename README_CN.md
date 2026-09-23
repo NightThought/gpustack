@@ -1,23 +1,18 @@
-<br>
+<h1 align="center">OriginHub</h1>
 
 <p align="center">
-    <img alt="GPUStack" src="https://raw.githubusercontent.com/gpustack/gpustack/main/docs/assets/gpustack-logo.png" width="300px"/>
+  AI 算力与大模型推理服务平台
 </p>
-<br>
 
 <p align="center">
-    <a href="https://docs.gpustack.ai" target="_blank">
-        <img alt="Documentation" src="https://img.shields.io/badge/文档-GPUStack-blue?logo=readthedocs&logoColor=white"></a>
-    <a href="./LICENSE" target="_blank">
-        <img alt="License" src="https://img.shields.io/github/license/gpustack/gpustack?logo=github&logoColor=white&label=License&color=blue"></a>
-    <a href="./docs/assets/wechat-group-qrcode.jpg" target="_blank">
-        <img alt="WeChat" src="https://img.shields.io/badge/微信群-GPUStack-blue?logo=wechat&logoColor=white"></a>
-    <a href="https://discord.gg/VXYJzuaqwD" target="_blank">
-        <img alt="Discord" src="https://img.shields.io/badge/Discord-GPUStack-blue?logo=discord&logoColor=white"></a>
-    <a href="https://twitter.com/intent/follow?screen_name=gpustack_ai" target="_blank">
-        <img alt="Follow on X(Twitter)" src="https://img.shields.io/twitter/follow/gpustack_ai?logo=X"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue"></a>
 </p>
-<br>
+
+> **本项目基于 [GPUStack](https://github.com/gpustack/gpustack) 修改而来。**
+> OriginHub 是 GPUStack 的衍生作品，遵循 Apache License 2.0 授权。
+> Copyright (c) 2024-2026 The GPUStack authors。版权归属与第三方组件见
+> [NOTICE](./NOTICE)，本 fork 的改动清单见 [CHANGES.md](./CHANGES.md)。
+> 本项目未经 GPUStack 项目背书、赞助或与其存在关联。
 
 <p align="center">
   <a href="./README.md">English</a> |
@@ -29,39 +24,39 @@
 
 ## 概述
 
-GPUStack 是一个开源的 GPU 集群管理器，用于 AI 模型推理服务和 GPU 实例供应。它配置和编排推理引擎（vLLM、SGLang、TensorRT-LLM 或您自定义的引擎），并支持按需启动可通过 SSH 访问的 GPU 实例。其核心功能包括：
+OriginHub 是一个开源的 GPU 集群管理器，用于 AI 模型推理服务和 GPU 实例供应。它配置和编排推理引擎（vLLM、SGLang、TensorRT-LLM 或您自定义的引擎），并支持按需启动可通过 SSH 访问的 GPU 实例。其核心功能包括：
 - **多集群 GPU 管理。** 跨多个环境管理 GPU 集群。这包括本地服务器、Kubernetes 集群和云提供商。
 - **可插拔推理引擎。** 自动配置高性能推理引擎，如 vLLM、SGLang 和 TensorRT-LLM。您也可以根据需要添加自定义推理引擎。
-- **Day 0 模型支持。** GPUStack 的可插拔引擎架构使您能够在新模型发布当天即可部署。
-- **性能优化配置。** 提供预调优模式，用于低延迟或高吞吐量。GPUStack 支持扩展的 KV 缓存系统，如 LMCache 和 HiCache，以减少 TTFT。它还包括对推测性解码方法（如 EAGLE3、MTP 和 N-grams）的内置支持。
+- **Day 0 模型支持。** OriginHub 的可插拔引擎架构使您能够在新模型发布当天即可部署。
+- **性能优化配置。** 提供预调优模式，用于低延迟或高吞吐量。OriginHub 支持扩展的 KV 缓存系统，如 LMCache 和 HiCache，以减少 TTFT。它还包括对推测性解码方法（如 EAGLE3、MTP 和 N-grams）的内置支持。
 - **GPU 实例。** 按需启动可通过 SSH 访问的 GPU 实例，适用于开发、微调和交互式工作负载。
 - **企业级运维能力。** 支持自动故障恢复、负载均衡、监控、认证和访问控制。
 
 ## 架构
 
-GPUStack 使开发团队、IT 组织和服务提供商能够大规模地提供模型即服务。它支持用于 LLM、语音、图像和视频模型的行业标准 API。该平台内置用户认证和访问控制、GPU 性能和利用率的实时监控，以及令牌使用量和 API 请求率的详细计量。
+OriginHub 使开发团队、IT 组织和服务提供商能够大规模地提供模型即服务。它支持用于 LLM、语音、图像和视频模型的行业标准 API。该平台内置用户认证和访问控制、GPU 性能和利用率的实时监控，以及令牌使用量和 API 请求率的详细计量。
 
-下图展示了单个 GPUStack 服务器如何管理跨本地和云环境的多个 GPU 集群。GPUStack 调度器分配 GPU 以最大化资源利用率，并选择合适的推理引擎以实现最佳性能。管理员还可以通过集成的 Grafana 和 Prometheus 仪表板全面了解系统运行状况和指标。
+下图展示了单个 OriginHub 服务器如何管理跨本地和云环境的多个 GPU 集群。OriginHub 调度器分配 GPU 以最大化资源利用率，并选择合适的推理引擎以实现最佳性能。管理员还可以通过集成的 Grafana 和 Prometheus 仪表板全面了解系统运行状况和指标。
 
 ![gpustack-v2-architecture](docs/assets/gpustack-v2-architecture.png)
 
 ## 集群全景视图
 
-[GPUStack 企业版](https://gpustack.ai/enterprise/)的 GPU 集群拓扑视图提供整个集群的实时全景：所有 Worker、GPU 和模型部署尽收眼底，并实时展示利用率、分配情况和健康状态。
+GPU 集群拓扑视图提供整个集群的实时全景：所有 Worker、GPU 和模型部署尽收眼底，并实时展示利用率、分配情况和健康状态。
 
 ![gpustack-cluster-topology](docs/assets/cluster-topology.png)
 
 ## 优化的推理性能
 
-GPUStack 的自动化引擎选择和参数优化可开箱即用地提供强大的推理性能。下图展示了相较于默认 vLLM 配置的吞吐量提升：
+OriginHub 的自动化引擎选择和参数优化可开箱即用地提供强大的推理性能。下图展示了相较于默认 vLLM 配置的吞吐量提升：
 
 ![h200-throughput-comparison](docs/assets/h200-throughput-comparison.png)
 
-有关详细的基准测试方法和结果，请访问我们的 [推理性能实验室](https://docs.gpustack.ai/latest/performance-lab/overview/)。
+有关详细的基准测试方法和结果，请访问我们的 [推理性能实验室](./docs/performance-lab/overview.md)。
 
 ## 支持的加速器
 
-GPUStack 支持多种 AI 推理加速器：
+OriginHub 支持多种 AI 推理加速器：
 
 - **NVIDIA GPU**
 - **AMD GPU**
@@ -73,20 +68,20 @@ GPUStack 支持多种 AI 推理加速器：
 - **Cambricon MLU**
 - **T-Head PPU**
 
-有关详细的要求和设置说明，请参阅[安装要求](https://docs.gpustack.ai/latest/installation/requirements/)文档。
+有关详细的要求和设置说明，请参阅[安装要求](./docs/installation/requirements.md)文档。
 
 ## 快速入门
 
 ### 前提条件
 
-1.  一个至少配备一块 NVIDIA GPU 的节点。对于其他类型的 GPU，请在 GPUStack UI 中添加 worker 时查看指南，或参阅[安装文档](https://docs.gpustack.ai/latest/installation/requirements/)获取更多详细信息。
+1.  一个至少配备一块 NVIDIA GPU 的节点。对于其他类型的 GPU，请在 OriginHub UI 中添加 worker 时查看指南，或参阅[安装文档](./docs/installation/requirements.md)获取更多详细信息。
 2.  确保 worker 节点上已安装 NVIDIA 驱动程序、[Docker](https://docs.docker.com/engine/install/) 和 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)。
-3.  （可选）一个用于托管 GPUStack server 的 CPU 节点。GPUStack server 不需要 GPU，可以在仅有 CPU 的机器上运行。必须安装 [Docker](https://docs.docker.com/engine/install/)。同时支持 Docker Desktop（适用于 Windows 和 macOS）。如果没有专用的 CPU 节点，可以将 GPUStack server 安装在 GPU worker 节点所在的同一台机器上。
-4.  GPUStack worker 节点仅支持 Linux。如果你使用 Windows，可考虑使用 WSL2 并避免使用 Docker Desktop。macOS 不支持作为 GPUStack worker 节点。
+3.  （可选）一个用于托管 OriginHub server 的 CPU 节点。OriginHub server 不需要 GPU，可以在仅有 CPU 的机器上运行。必须安装 [Docker](https://docs.docker.com/engine/install/)。同时支持 Docker Desktop（适用于 Windows 和 macOS）。如果没有专用的 CPU 节点，可以将 OriginHub server 安装在 GPU worker 节点所在的同一台机器上。
+4.  OriginHub worker 节点仅支持 Linux。如果你使用 Windows，可考虑使用 WSL2 并避免使用 Docker Desktop。macOS 不支持作为 OriginHub worker 节点。
 
-### 安装 GPUStack
+### 安装 OriginHub
 
-运行以下命令，使用 Docker 安装并启动 GPUStack server：
+运行以下命令，使用 Docker 安装并启动 OriginHub server：
 
 ```bash
 sudo docker run -d --name gpustack \
@@ -111,27 +106,27 @@ sudo docker run -d --name gpustack \
 ```
 </details>
 
-检查 GPUStack 启动日志：
+检查 OriginHub 启动日志：
 
 ```bash
 sudo docker logs -f gpustack
 ```
 
-GPUStack 启动后，运行以下命令获取默认管理员密码：
+OriginHub 启动后，运行以下命令获取默认管理员密码：
 
 ```bash
 sudo docker exec gpustack cat /var/lib/gpustack/initial_admin_password
 ```
 
-打开浏览器，访问 `http://你的主机IP` 以进入 GPUStack UI。使用默认用户名 `admin` 和上面获取的密码登录。
+打开浏览器，访问 `http://你的主机IP` 以进入 OriginHub UI。使用默认用户名 `admin` 和上面获取的密码登录。
 
 ### 设置 GPU 集群
 
-1.  在 GPUStack UI 中，导航到 `集群` 页面。
+1.  在 OriginHub UI 中，导航到 `集群` 页面。
 2.  点击 `添加集群` 按钮。
 3.  选择 `Docker` 作为集群提供商。
 4.  填写新集群的 `名称` 和 `描述` 字段，然后点击 `保存` 按钮。
-5.  按照界面指南配置新的 worker 节点。你需要在 worker 节点上运行一个 Docker 命令以将其连接到 GPUStack server。命令将类似于以下内容：
+5.  按照界面指南配置新的 worker 节点。你需要在 worker 节点上运行一个 Docker 命令以将其连接到 OriginHub server。命令将类似于以下内容：
     ```bash
     sudo docker run -d --name gpustack-worker \
           --restart=unless-stopped \
@@ -145,19 +140,19 @@ sudo docker exec gpustack cat /var/lib/gpustack/initial_admin_password
           --token 你的_worker_token \
           --advertise-address 192.168.1.2
     ```
-6.  在 worker 节点上执行该命令以连接到 GPUStack server。
-7.  worker 节点成功连接后，它将出现在 GPUStack UI 的 `Workers` 页面中。
+6.  在 worker 节点上执行该命令以连接到 OriginHub server。
+7.  worker 节点成功连接后，它将出现在 OriginHub UI 的 `Workers` 页面中。
 
 ### 部署模型
 
-1.  在 GPUStack 用户界面中导航到 `Catalog` 页面。
+1.  在 OriginHub 用户界面中导航到 `Catalog` 页面。
 2.  从可用模型列表中选择 `Qwen3.5-0.8B` 模型。
 
 ![从目录部署 qwen3](docs/assets/quick-start/quick-start-qwen3.png)
 
 3.  部署兼容性检查通过后，点击 `Save` 按钮部署模型。
 
-4.  GPUStack 将开始下载模型文件并部署模型。当部署状态显示为 `Running` 时，表示模型已成功部署。
+4.  OriginHub 将开始下载模型文件并部署模型。当部署状态显示为 `Running` 时，表示模型已成功部署。
 
 ![模型运行中](docs/assets/quick-start/model-running.png)
 
@@ -170,11 +165,11 @@ sudo docker exec gpustack cat /var/lib/gpustack/initial_admin_password
 1.  导航到 `Access Control` > `API Keys` 页面，然后点击 `New API Key` 按钮。
 2.  填写 `Name` 并点击 `Save` 按钮。
 3.  复制生成的 API 密钥并将其保存在安全的地方。请注意，该密钥仅在创建时可见一次。
-4.  您现在可以使用该 API 密钥访问 GPUStack 提供的 OpenAI 兼容 API 端点。例如，使用 curl 如下所示：
+4.  您现在可以使用该 API 密钥访问 OriginHub 提供的 OpenAI 兼容 API 端点。例如，使用 curl 如下所示：
 
 ```bash
 # 将 `your_api_key` 和 `your_gpustack_server_url`
-# 替换为您实际的 API 密钥和 GPUStack 服务器 URL。
+# 替换为您实际的 API 密钥和 OriginHub 服务器 URL。
 export GPUSTACK_API_KEY=your_api_key
 curl http://your_gpustack_server_url/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -197,7 +192,7 @@ curl http://your_gpustack_server_url/v1/chat/completions \
 
 ## 文档
 
-请参阅 [官方文档站点](https://docs.gpustack.ai) 获取完整文档。
+请参阅 [官方文档站点](./docs) 获取完整文档。
 
 ## 构建
 
@@ -206,19 +201,24 @@ curl http://your_gpustack_server_url/v1/chat/completions \
 
 ## 贡献
 
-如果您有兴趣为 GPUStack 做贡献，请阅读 [贡献指南](./docs/contributing.md)。
+如果您有兴趣为 OriginHub 做贡献，请阅读 [贡献指南](./docs/contributing.md)。
 
-## 加入社区
+## 支持
 
-扫码加入社区群：
+问题、缺陷与建议请提到本 fork 的 [issue 追踪](https://github.com/NightThought/gpustack/issues)。
+目前没有即时聊天群；有了之后会写在这里，而不会指向本项目之外的社区。
 
-<p align="left">
-    <img alt="Wechat-group" src="./docs/assets/wechat-group-qrcode.jpg" width="300px"/>
-</p>
+## 致谢
+
+OriginHub 基于开源项目 [GPUStack](https://github.com/gpustack/gpustack) 构建，
+遵循 Apache License 2.0 授权。Copyright (c) 2024-2026 The GPUStack authors。
+
+完整的版权归属与本产品再分发的第三方组件见 [NOTICE](./NOTICE)，本 fork 的改动摘要见
+[CHANGES.md](./CHANGES.md)。本项目及其维护者未经 GPUStack 项目背书、赞助或与其存在关联。
 
 ## 许可证
 
-版权所有 (c) 2024-2026 GPUStack 作者
+版权所有 (c) 2024-2026 OriginHub 作者
 
 根据 Apache License, Version 2.0（"许可证"）授权；
 除非符合许可证，否则您不得使用此文件。

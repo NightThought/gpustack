@@ -10,6 +10,7 @@ from prometheus_client.core import (
     GaugeMetricFamily,
     InfoMetricFamily,
 )
+from gpustack import branding
 from gpustack.client.generated_clientset import ClientSet
 from gpustack.config.config import Config
 from gpustack.logging import setup_logging
@@ -393,7 +394,7 @@ class MetricExporter(Collector):
 
             # Start FastAPI server
             app = FastAPI(
-                title="GPUStack Worker Metrics Exporter",
+                title=f"{branding.PRODUCT_NAME} Worker Metrics Exporter",
                 response_model_exclude_unset=True,
             )
 

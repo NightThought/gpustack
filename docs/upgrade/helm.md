@@ -1,12 +1,12 @@
 # Upgrade via Helm
 
-You can upgrade a Kubernetes-based GPUStack installation with `helm upgrade`.
+You can upgrade a Kubernetes-based OriginHub installation with `helm upgrade`.
 
-The following upgrade instructions apply only to GPUStack v2.2.0 and later, which is the first version deployable via Helm.
+The following upgrade instructions apply only to OriginHub v2.2.0 and later, which is the first version deployable via Helm.
 
 !!! note
 
-    Deploying and upgrading GPUStack on Kubernetes with Higress is currently considered **experimental**.
+    Deploying and upgrading OriginHub on Kubernetes with Higress is currently considered **experimental**.
 
 !!! warning
 
@@ -18,7 +18,7 @@ The following upgrade instructions apply only to GPUStack v2.2.0 and later, whic
 
 ## Upgrade the Release
 
-Always pin the target version with `--version <chart-version>` so the upgrade lands on a known, reproducible release (the chart version matches the GPUStack release, e.g. `2.2.0`). Reuse the values you supplied at install time by passing the same `-f values.yaml` (and/or `--set`) flags you used originally, or `--reuse-values` to keep the previously applied values:
+Always pin the target version with `--version <chart-version>` so the upgrade lands on a known, reproducible release (the chart version matches the OriginHub release, e.g. `2.2.0`). Reuse the values you supplied at install time by passing the same `-f values.yaml` (and/or `--set`) flags you used originally, or `--reuse-values` to keep the previously applied values:
 
 ```bash
 helm upgrade gpustack oci://registry-1.docker.io/gpustack/gpustack-chart \
@@ -33,10 +33,10 @@ helm upgrade gpustack oci://registry-1.docker.io/gpustack/gpustack-chart \
 
 ## Server and Worker Ordering
 
-The GPUStack server is deployed as a `StatefulSet` and chart-managed workers as `DaemonSet`s, so both are rolled to the new image as part of the release upgrade. Because the server and workers belong to the **same release**, the "server first, then workers" ordering cannot be enforced by a single `helm upgrade`. If strict ordering matters in your environment, wait for the server pod to become ready before allowing the worker pods to roll:
+The OriginHub server is deployed as a `StatefulSet` and chart-managed workers as `DaemonSet`s, so both are rolled to the new image as part of the release upgrade. Because the server and workers belong to the **same release**, the "server first, then workers" ordering cannot be enforced by a single `helm upgrade`. If strict ordering matters in your environment, wait for the server pod to become ready before allowing the worker pods to roll:
 
 ```bash
 kubectl rollout status statefulset/<release-name>-server -n gpustack-system
 ```
 
-Workers that were registered outside the chart through GPUStack clusters (for example, Docker or Kubernetes clusters added through the UI) are not managed by this Helm release and must be upgraded following the [Upgrade a Cluster Deployment](cluster.md) steps.
+Workers that were registered outside the chart through OriginHub clusters (for example, Docker or Kubernetes clusters added through the UI) are not managed by this Helm release and must be upgraded following the [Upgrade a Cluster Deployment](cluster.md) steps.

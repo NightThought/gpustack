@@ -10,6 +10,7 @@ from typing import Any, Dict
 import yaml
 
 from gpustack import __version__, __git_commit__
+from gpustack import branding
 from gpustack.config.config import set_global_config
 from gpustack.extension import Plugin, iter_plugin_classes
 from gpustack.logging import setup_logging
@@ -38,8 +39,8 @@ class OptionalBoolAction(argparse.Action):
 def setup_start_cmd(subparsers: argparse._SubParsersAction):
     parser_server: argparse.ArgumentParser = subparsers.add_parser(
         "start",
-        help="Run GPUStack server or worker.",
-        description="Run GPUStack server or worker.",
+        help=f"Run {branding.PRODUCT_NAME} server or worker.",
+        description=f"Run {branding.PRODUCT_NAME} server or worker.",
     )
     start_cmd_options(parser_server)
 
@@ -67,7 +68,7 @@ def start_cmd_options(parser_server: argparse.ArgumentParser):
     common_group.add_argument(
         "--api-port",
         type=int,
-        help="Port to bind the GPUStack API server to.",
+        help=f"Port to bind the {branding.PRODUCT_NAME} API server to.",
         default=get_gpustack_env("API_PORT"),
     )
     common_group.add_argument(
@@ -122,25 +123,25 @@ def start_cmd_options(parser_server: argparse.ArgumentParser):
     common_group.add_argument(
         "--system-default-container-registry",
         type=str,
-        help="Default container registry for GPUStack to pull system and inference images. The default is 'docker.io'. Keep all GPUStack business images under the 'gpustack' namespace; if a multi-level namespace is required, keep 'gpustack' as the last level (e.g. 'awesome.com/amazing-group/amazing-subgroup/gpustack') and set this to the parent path (e.g. 'awesome.com/amazing-group/amazing-subgroup'). If the images cannot stay under the 'gpustack' namespace (e.g. 'gpustack-ai'), adjust --image-repo and --benchmark-image-repo accordingly.",
+        help=f"Default container registry for {branding.PRODUCT_NAME} to pull system and inference images. The default is 'docker.io'. Keep all {branding.PRODUCT_NAME} business images under the 'gpustack' namespace; if a multi-level namespace is required, keep 'gpustack' as the last level (e.g. 'awesome.com/amazing-group/amazing-subgroup/gpustack') and set this to the parent path (e.g. 'awesome.com/amazing-group/amazing-subgroup'). If the images cannot stay under the 'gpustack' namespace (e.g. 'gpustack-ai'), adjust --image-repo and --benchmark-image-repo accordingly.",
         default=get_gpustack_env("SYSTEM_DEFAULT_CONTAINER_REGISTRY"),
     )
     common_group.add_argument(
         "--image-name-override",
         type=str,
-        help="Override the default image name for the GPUStack container.",
+        help=f"Override the default image name for the {branding.PRODUCT_NAME} container.",
         default=get_gpustack_env("IMAGE_NAME_OVERRIDE"),
     )
     common_group.add_argument(
         "--image-repo",
         type=str,
-        help="Override the default image repository gpustack/gpustack for the GPUStack container (do not include the tag; GPUStack appends the version tag automatically). If the image lives outside the 'gpustack' namespace (e.g. 'awesome.com/amazing-group/amazing-subgroup/gpustack-ai/gpustack:<tag>'), set --system-default-container-registry to the parent path (e.g. 'awesome.com/amazing-group/amazing-subgroup') first, then set this to 'gpustack-ai/gpustack'.",
+        help=f"Override the default image repository gpustack/gpustack for the {branding.PRODUCT_NAME} container (do not include the tag; {branding.PRODUCT_NAME} appends the version tag automatically). If the image lives outside the 'gpustack' namespace (e.g. 'awesome.com/amazing-group/amazing-subgroup/gpustack-ai/gpustack:<tag>'), set --system-default-container-registry to the parent path (e.g. 'awesome.com/amazing-group/amazing-subgroup') first, then set this to 'gpustack-ai/gpustack'.",
         default=get_gpustack_env("IMAGE_REPO"),
     )
     common_group.add_argument(
         "--benchmark-image-repo",
         type=str,
-        help="Override the default benchmark image repository gpustack/benchmark-runner for the GPUStack benchmark container. Unlike --image-repo, this value is used as-is, so include the tag. If the image lives outside the 'gpustack' namespace (e.g. 'awesome.com/amazing-group/amazing-subgroup/gpustack-ai/benchmark-runner:<tag>'), set --system-default-container-registry to the parent path (e.g. 'awesome.com/amazing-group/amazing-subgroup') first, then set this to 'gpustack-ai/benchmark-runner:<tag>'.",
+        help=f"Override the default benchmark image repository gpustack/benchmark-runner for the {branding.PRODUCT_NAME} benchmark container. Unlike --image-repo, this value is used as-is, so include the tag. If the image lives outside the 'gpustack' namespace (e.g. 'awesome.com/amazing-group/amazing-subgroup/gpustack-ai/benchmark-runner:<tag>'), set --system-default-container-registry to the parent path (e.g. 'awesome.com/amazing-group/amazing-subgroup') first, then set this to 'gpustack-ai/benchmark-runner:<tag>'.",
         default=get_gpustack_env("BENCHMARK_IMAGE_REPO"),
     )
     common_group.add_argument(
@@ -170,7 +171,7 @@ def start_cmd_options(parser_server: argparse.ArgumentParser):
     common_group.add_argument(
         "--namespace",
         type=str,
-        help="Kubernetes namespace for GPUStack to deploy gateway routing rules and model instances.",
+        help=f"Kubernetes namespace for {branding.PRODUCT_NAME} to deploy gateway routing rules and model instances.",
         default=os.getenv("POD_NAMESPACE"),
     )
 
@@ -200,13 +201,13 @@ def start_cmd_options(parser_server: argparse.ArgumentParser):
     server_group.add_argument(
         "--disable-worker",
         action=OptionalBoolAction,
-        help="(DEPRECATED) Disable the embedded worker for the GPUStack server. New installations will not have the embedded worker by default. Use '--enable-worker' to enable the embedded worker if needed. If neither flag is set, for backward compatibility, the embedded worker will be enabled by default for legacy installations prior to v2.0.1.",
+        help=f"(DEPRECATED) Disable the embedded worker for the {branding.PRODUCT_NAME} server. New installations will not have the embedded worker by default. Use '--enable-worker' to enable the embedded worker if needed. If neither flag is set, for backward compatibility, the embedded worker will be enabled by default for legacy installations prior to v2.0.1.",
         default=get_gpustack_env_bool("DISABLE_WORKER"),
     )
     server_group.add_argument(
         "--enable-worker",
         action=OptionalBoolAction,
-        help="Enable the embedded worker for the GPUStack server.",
+        help=f"Enable the embedded worker for the {branding.PRODUCT_NAME} server.",
         default=get_gpustack_env_bool("ENABLE_WORKER"),
     )
 
@@ -515,7 +516,7 @@ def start_cmd_options(parser_server: argparse.ArgumentParser):
     server_group.add_argument(
         "--cas-username-attribute",
         type=str,
-        help="CAS XML attribute name to use as the GPUStack username. Defaults to the CAS `cas:user` element when unset.",
+        help=f"CAS XML attribute name to use as the {branding.PRODUCT_NAME} username. Defaults to the CAS `cas:user` element when unset.",
         default=get_gpustack_env("CAS_USERNAME_ATTRIBUTE"),
     )
     server_group.add_argument(
@@ -748,7 +749,9 @@ def run(args: argparse.Namespace):
         initialize_gateway(cfg)
         multiprocessing.set_start_method('spawn')
 
-        logger.info(f"GPUStack version: {__version__} ({__git_commit__})")
+        logger.info(
+            f"{branding.PRODUCT_NAME} version: {__version__} ({__git_commit__})"
+        )
 
         if cfg.server_url:
             run_worker(cfg)

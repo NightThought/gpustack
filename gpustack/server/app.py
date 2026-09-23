@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi_cdn_host import patch_docs
 
 from gpustack import __version__
+from gpustack import branding
 from fastapi.middleware.cors import CORSMiddleware
 from gpustack.api import exceptions, middlewares
 from gpustack.api.auth import BearerTokenAuthenticator
@@ -40,7 +41,10 @@ def create_app(cfg: Config) -> FastAPI:
         await app.state.http_client_no_proxy.close()
 
     app = FastAPI(
-        title="GPUStack",
+        # Drives the /docs and /redoc page titles and the OpenAPI ``info.title``,
+        # which is what an integrator's generated SDK calls this product.
+        title=branding.PRODUCT_NAME,
+        description=branding.ATTRIBUTION,
         lifespan=lifespan,
         response_model_exclude_unset=True,
         version=__version__,

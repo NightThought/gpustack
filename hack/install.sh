@@ -34,6 +34,24 @@ function download_ui() {
   local tmp_ui_path="${ui_path}/tmp"
   local tag="latest"
 
+  # Where the console bundle comes from.
+  #
+  # This build does not compile the web console; it downloads a tarball that the
+  # console repository published. That makes this the highest-leverage line in
+  # the whole delivery path: whoever controls it controls what users see in the
+  # browser. Leave it pointed at the upstream bucket and a rebranded fork ships
+  # upstream's console — upstream logo, upstream links, upstream update feed —
+  # no matter what the fork's own frontend source says, and the mismatch is
+  # invisible from inside this repository.
+  #
+  # It still defaults to the upstream bucket on purpose: that is the only build
+  # that exists today, and a fork that repoints this before publishing its own
+  # console artifacts gets a broken install rather than an upstream-branded one.
+  # Set UI_RELEASE_BASE_URL (no trailing slash) once your own console releases
+  # are being published; the archive is expected at ${base_url}/<version>.tar.gz
+  # and must contain dist/.
+  local base_url="${UI_RELEASE_BASE_URL:-https://gpustack-ui-1303613262.cos.accelerate.myqcloud.com/releases}"
+
   if [[ "${GIT_VERSION}" != "v0.0.0" ]]; then
     tag="${GIT_VERSION}"
   fi
@@ -43,7 +61,7 @@ function download_ui() {
 
   gpustack::log::info "downloading '${tag}' UI assets"
 
-  if ! curl --retry 3 --retry-connrefused --retry-delay 3 -sSfL "https://gpustack-ui-1303613262.cos.accelerate.myqcloud.com/releases/${tag}.tar.gz" 2>/dev/null |
+  if ! curl --retry 3 --retry-connrefused --retry-delay 3 -sSfL "${base_url}/${tag}.tar.gz" 2>/dev/null |
     tar -xzf - --directory "${tmp_ui_path}/ui" 2>/dev/null; then
 
     if [[ "${tag:-}" =~ ^v([0-9]+)\.([0-9]+)(\.[0-9]+)?(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
@@ -51,7 +69,7 @@ function download_ui() {
     fi
 
     gpustack::log::warn "failed to download '${tag}' ui archive, fallback to '${default_tag}' ui archive"
-    if ! curl --retry 3 --retry-connrefused --retry-delay 3 -sSfL "https://gpustack-ui-1303613262.cos.accelerate.myqcloud.com/releases/${default_tag}.tar.gz" |
+    if ! curl --retry 3 --retry-connrefused --retry-delay 3 -sSfL "${base_url}/${default_tag}.tar.gz" |
       tar -xzf - --directory "${tmp_ui_path}/ui" 2>/dev/null; then
       gpustack::log::fatal "failed to download '${default_tag}' ui archive"
     fi

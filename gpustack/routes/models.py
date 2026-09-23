@@ -6,6 +6,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import RedirectResponse, StreamingResponse
 from urllib.parse import urlencode
+from gpustack import branding
 from gpustack_runtime.detector import ManufacturerEnum
 from sqlalchemy.orm import selectinload
 from sqlmodel import and_, or_, select
@@ -479,14 +480,14 @@ async def validate_model_in(
                 ["port"],
                 (
                     "Setting the port using --port is not supported. Ports are "
-                    "automatically allocated by GPUStack."
+                    f"automatically allocated by {branding.PRODUCT_NAME}."
                 ),
             ),
             (
                 ["api-key"],
                 (
                     "Setting the API key using --api-key is not supported. API keys "
-                    "are managed by GPUStack."
+                    f"are managed by {branding.PRODUCT_NAME}."
                 ),
             ),
             (

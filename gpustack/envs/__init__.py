@@ -446,7 +446,9 @@ BILLING_RATE_BATCH_SIZE = int(os.getenv("GPUSTACK_BILLING_RATE_BATCH_SIZE", 500)
 # worst-case delay before a resource charge is collected. An in-flight period is
 # skipped on purpose: issuing it would bill partial usage and, being idempotent
 # per period, never bill the rest.
-BILLING_INVOICE_PERIOD = os.getenv("GPUSTACK_BILLING_INVOICE_PERIOD", "monthly").strip().lower()
+BILLING_INVOICE_PERIOD = (
+    os.getenv("GPUSTACK_BILLING_INVOICE_PERIOD", "monthly").strip().lower()
+)
 # When the invoicer runs, as a crontab expression in UTC. The default is 03:00
 # on the first of the month, which for a monthly period is "as soon as the
 # period has closed"; a daily period wants ``0 1 * * *`` instead. Invalid values

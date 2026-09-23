@@ -48,6 +48,7 @@ from huggingface_hub import HfApi
 from huggingface_hub.utils import GatedRepoError, HfHubHTTPError
 from requests.exceptions import HTTPError
 
+from gpustack import branding
 from gpustack.config.config import get_global_config
 from gpustack.schemas import ModelFile
 from gpustack.schemas.models import (
@@ -701,12 +702,14 @@ def auth_check(
             api.auth_check(model.huggingface_repo_id)
         except GatedRepoError:
             raise Exception(
-                "Access to the model is restricted. Please set a valid Huggingface token with proper permissions in the GPUStack server configuration."
+                f"Access to the model is restricted. Please set a valid Huggingface token "
+                f"with proper permissions in the {branding.PRODUCT_NAME} server configuration."
             )
         except HfHubHTTPError as e:
             if e.response.status_code in [401, 403]:
                 raise Exception(
-                    "Access to the model is restricted. Please set a valid Huggingface token with proper permissions in the GPUStack server configuration."
+                    f"Access to the model is restricted. Please set a valid Huggingface token "
+                    f"with proper permissions in the {branding.PRODUCT_NAME} server configuration."
                 )
     if model.source == SourceEnum.MODEL_SCOPE:
         api = HubApi()

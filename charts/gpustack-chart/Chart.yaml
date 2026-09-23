@@ -1,21 +1,33 @@
 apiVersion: v2
+# The chart name is deliberately still "gpustack-chart". Renaming it is a
+# three-place change that has to land together — this field, the directory name,
+# and CHART_STATIC_PATH in gpustack/k8s/chart.py (plus the packaging step and
+# tests/k8s/test_bootstrap_manifest.py) — and missing the third produces a chart
+# the server cannot hand out at runtime while the build still succeeds. Do it as
+# its own change, with the registry and CI updated in the same commit.
 name: gpustack-chart
 version: 0.1.0
-description: A Helm chart for gpustack
+description: A Helm chart for OriginHub
 appVersion: "2.2.0"
 keywords:
   - ai
   - gpu
   - stack
-home: https://github.com/gpustack/gpustack
+# Pointed at this fork rather than the upstream project. Update when the product
+# repository is finalised; a chart whose home links elsewhere invites the
+# question of who maintains it.
+home: https://github.com/NightThought/gpustack
 sources:
-  - https://github.com/gpustack/gpustack
-icon: https://docs.gpustack.ai/2.0/assets/logo.png
+  - https://github.com/NightThought/gpustack
+# No icon, on purpose. This used to point at an upstream-hosted logo, which put
+# the GPUStack mark on every Helm repository index and every Kubernetes dashboard
+# that renders chart icons — a brand leak in exactly the places a customer looks.
+# Set it to a self-hosted image once one exists; do not point it back upstream.
 kubeVersion: ">=1.30.0-0"
 annotations:
   artifacthub.io/links: |
-    - name: GitHub
-      url: https://github.com/gpustack/gpustack
+    - name: Source
+      url: https://github.com/NightThought/gpustack
 dependencies:
   - name: higress-core
     version: "2.1.9"
@@ -28,6 +40,11 @@ dependencies:
   #
   # Gated on `worker.enabled`: the operator exists to run worker workloads, so a
   # server-only install has no use for it.
+  #
+  # This repository URL is a *fetch location*, not branding: `helm dependency
+  # update` pulls the operator chart from it, so changing it breaks the build
+  # unless the chart is mirrored first. Same for the gpustack/* images in
+  # pack/Dockerfile. Mirror them, then repoint both together.
   - name: gpustack-operator
     version: "0.8.6"
     repository: "https://docs.gpustack.ai/gpustack-operator/charts"

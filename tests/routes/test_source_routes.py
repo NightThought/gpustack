@@ -31,6 +31,7 @@ from gpustack.api.exceptions import (
     ServiceUnavailableException,
 )
 from gpustack.routes import cache_providers, inference_backend, model_sets, ota_sources
+from gpustack.routes import source_probe as source_probe_route
 from gpustack.routes.source_probe import run_source_probe, source_probe_status
 from gpustack.schemas.catalog_source import (
     BUILTIN_CATALOG_SOURCE_NAME,
@@ -68,7 +69,6 @@ from gpustack.server.sources.core import (
 )
 from gpustack.server.sources.probe import (
     OFFICIAL_DEFAULT_HOURS,
-    OTA_SERVER_URL,
     OfficialRef,
     RefreshRound,
     SourceRefresher,
@@ -98,6 +98,12 @@ from gpustack.server.cache_provider_catalog import (
 _REAL_ASYNC_CLIENT = httpx.AsyncClient
 _COMMUNITY_BACKEND_SPEC = inference_backend.COMMUNITY_BACKEND_SPEC
 _CATALOG_SPEC = model_sets.CATALOG_SOURCE_SPEC
+
+# An OTA address for tests that exercise the official-source path. Patched in
+# rather than read from the shipped default, so these tests assert the behaviour
+# (which address resolves to the OFFICIAL slot, what the status reports) and not
+# the deployment choice of which mirror a release points at.
+_TEST_OTA_URL = "https://ota.test/latest"
 _BUILTIN_BACKEND_SPEC = inference_backend.BUILTIN_BACKEND_SPEC
 _CACHE_PROVIDER_SPEC = cache_providers.CACHE_PROVIDER_SOURCE_SPEC
 
@@ -761,6 +767,11 @@ class TestCatalogSourceConfig:
             "_packaged_catalog_filename",
             lambda: "model-catalog-modelscope.yaml",
         )
+        # Pin the OTA address rather than reading the shipped default. What this
+        # test proves is that naming the official document's own address takes
+        # the OFFICIAL path; tying it to the default would also assert what that
+        # default is, which is a deployment decision and not this behaviour.
+        monkeypatch.setattr(probe_module, "OTA_SERVER_URL", _TEST_OTA_URL)
         _install_fake_url_fetch(monkeypatch)
         _REMOTE["doc"] = _catalog("Remote")
         await _seed_catalog_builtin(session, "Baseline")
@@ -770,7 +781,7 @@ class TestCatalogSourceConfig:
             _CATALOG_SPEC,
             _upsert(
                 source_type=SourceTypeEnum.URL,
-                url=f"{OTA_SERVER_URL}/model-catalog-modelscope.yaml",
+                url=f"{_TEST_OTA_URL}/model-catalog-modelscope.yaml",
             ),
         )
         assert config.custom is None
@@ -789,7 +800,7 @@ class TestCatalogSourceConfig:
             _CATALOG_SPEC,
             _upsert(
                 source_type=SourceTypeEnum.URL,
-                url=f"{OTA_SERVER_URL}/model-catalog.yaml",
+                url=f"{_TEST_OTA_URL}/model-catalog.yaml",
             ),
         )
         assert config.custom is not None
@@ -1404,14 +1415,22 @@ class TestSourceProbe:
             ),
         )
 
-        # A standby: it reports what is stored and admits it isn't refreshing.
-        status = await source_probe_status(session, None)
-        assert status.refreshing_on_this_server is False
         # Enough for a client to link straight at a published document: the mirror
         # this cluster reads, joined with the file each kind is published as. It
         # is resolved, not read off the last round, so it is right before any
         # round has run at all.
-        assert status.ota_server_url == "https://ota.gpustack.ai/latest"
+        #
+        # Patched before the call rather than read from the shipped default: an
+        # empty default means "no OTA server configured", and what this test
+        # proves is that the status reports what is configured, not which mirror
+        # happens to ship. The route module binds the name at import time, so the
+        # patch has to target that binding, not probe's.
+        monkeypatch.setattr(source_probe_route, "OTA_SERVER_URL", _TEST_OTA_URL)
+
+        # A standby: it reports what is stored and admits it isn't refreshing.
+        status = await source_probe_status(session, None)
+        assert status.refreshing_on_this_server is False
+        assert status.ota_server_url == _TEST_OTA_URL
         assert status.kinds["catalog"].filename == "model-catalog-modelscope.yaml"
         assert status.kinds["built-in-backend"].filename == "runner.py.json"
         assert status.kinds["catalog"].source_type == SourceTypeEnum.OFFICIAL

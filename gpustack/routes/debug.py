@@ -1,5 +1,7 @@
 import logging
 import tracemalloc
+
+from gpustack import branding
 from fastapi import APIRouter, Request
 
 from gpustack.api.exceptions import (
@@ -35,7 +37,10 @@ async def set_log_level(request: Request):
 def get_memory_profile():
     if not tracemalloc.is_tracing():
         raise BadRequestException(
-            message="tracemalloc is not enabled. Please run GPUStack server in debug mode."
+            message=(
+                "tracemalloc is not enabled. Please run "
+                f"{branding.PRODUCT_NAME} server in debug mode."
+            ),
         )
 
     snapshot = tracemalloc.take_snapshot()

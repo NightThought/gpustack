@@ -6,6 +6,7 @@ import httpx
 from pydantic import BaseModel
 
 from gpustack import __version__
+from gpustack import branding
 from gpustack.utils import platform
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,12 @@ cached_update = None
 cache_timestamp = None
 UPDATE_CACHE_TIMEOUT = 12 * 60 * 60
 UPDATE_CHECK_INTERVAL = 12 * 60 * 60
-UPDATE_CHECK_URL = "https://update-service.gpustack.ai"
+# Empty by default, which disables the check. A rebranded deployment should not
+# report its version to the upstream project's service, and an operator who runs
+# their own update service points ``--update-check-url`` at it. ``disable_update_check``
+# remains the explicit off switch; this default just stops the outbound call from
+# happening when nobody configured a destination.
+UPDATE_CHECK_URL = branding.UPDATE_CHECK_URL
 
 
 def is_dev_version() -> bool:
@@ -48,11 +54,16 @@ async def do_get_update(
 ) -> UpdateResponse:
     if update_check_url is None:
         update_check_url = UPDATE_CHECK_URL
+    if not update_check_url:
+        # No destination configured: report the running version and make no call.
+        # Returning the current version is what the failure path below already
+        # does, so callers see one consistent "nothing newer known" answer.
+        return UpdateResponse(latest_version=__version__)
 
     try:
         os_name = platform.system()
         arch = platform.arch()
-        headers = {"User-Agent": f"gpustack/{__version__} ({os_name}; {arch})"}
+        headers = {"User-Agent": f"{branding.USER_AGENT} ({os_name}; {arch})"}
         params = {"os": os_name, "arch": arch, "version": __version__}
 
         async with httpx.AsyncClient(timeout=timeout) as client:

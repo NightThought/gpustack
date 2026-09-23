@@ -1,6 +1,6 @@
 # Air-Gapped Installation
 
-GPUStack can be installed in an air-gapped (offline) environment with no internet access.
+OriginHub can be installed in an air-gapped (offline) environment with no internet access.
 
 ## Prerequisites
 
@@ -18,7 +18,7 @@ If your system supports a container toolkit, install and configure it as needed 
 
 ### Container Images
 
-GPUStack offers an [Image Selector](https://docs.gpustack.ai/latest/image-selector/) site to help users easily pick the images they want to download. For more advanced or automated syncing, GPUStack also provides image management commands:
+An [Image Selector](https://docs.gpustack.ai/latest/image-selector/) site helps pick the images to download; it is maintained by the upstream project, and the image names it lists are the ones this build uses. For more advanced or automated syncing, OriginHub provides image management commands:
 
 - `gpustack copy-images`: Sync images from one registry to another
 - `gpustack save-images`: Download images and save them locally
@@ -29,9 +29,9 @@ Below are the details on how to use these CLI commands.
 
 - **Copy Images**
 
-GPUStack provides various container images for different components and inference backends, available on [Docker Hub](https://hub.docker.com/u/gpustack) and [Quay.io](https://quay.io/user/gpustack/).
+Container images for the different components and inference backends are available on [Docker Hub](https://hub.docker.com/u/gpustack) and [Quay.io](https://quay.io/user/gpustack/).
 
-To transfer the required container images to your internal registry from a machine with internet access, use the GPUStack `copy-images` command:
+To transfer the required container images to your internal registry from a machine with internet access, use the OriginHub `copy-images` command:
 
 ```bash
 sudo docker run --rm -it --entrypoint "" gpustack/gpustack \
@@ -78,7 +78,7 @@ The displayed image list includes all supported accelerators, inference backends
 
 If your target environment is air-gapped or does not have internet access, you can first download the required images on a machine with internet connectivity, then transfer and load them into the offline environment.
 
-GPUStack provides the `save-images` and `load-images` commands for this workflow.
+OriginHub provides the `save-images` and `load-images` commands for this workflow.
 
 **Copy Images**
 
@@ -126,7 +126,7 @@ sudo docker run --rm -it --entrypoint "" \
     /gpustack-air-gapped
 ```
 
-This command imports all image packages from the specified directory into the local Docker daemon, making them available for GPUStack.
+This command imports all image packages from the specified directory into the local Docker daemon, making them available for OriginHub.
 
 !!! note
 
@@ -136,7 +136,7 @@ For more details on `load-images`, see the [CLI Reference](../cli-reference/load
 
 ## Installation
 
-After preparing the internal container registry with the required images, you can install GPUStack in the air-gapped environment.
+After preparing the internal container registry with the required images, you can install OriginHub in the air-gapped environment.
 
 ```diff
  sudo docker run -d --name gpustack \
@@ -152,7 +152,7 @@ After preparing the internal container registry with the required images, you ca
 ### Pulling Inference Backend Images from a Secure Registry
 
 If your internal container registry requires authentication,  
-set the following environment variables when starting the GPUStack worker to allow it to pull the runner image.
+set the following environment variables when starting the OriginHub worker to allow it to pull the runner image.
 
 ```diff
  sudo docker run -d --name gpustack \
@@ -167,7 +167,7 @@ set the following environment variables when starting the GPUStack worker to all
 ### Pulling Inference Backend Images from non-default Namespace
 
 If your internal container registry uses a different namespace than the default `gpustack`,  
-set the following environment variable when starting the GPUStack worker to allow it to pull the runner image.
+set the following environment variable when starting the OriginHub worker to allow it to pull the runner image.
 
 ```diff
  sudo docker run -d --name gpustack \

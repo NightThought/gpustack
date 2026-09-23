@@ -1,10 +1,28 @@
 [project]
+# Distribution name kept as "gpustack" for now: renaming it has to happen
+# together with regenerating uv.lock and with pack/Dockerfile:529, which resolves
+# the install location via `pip show gpustack`. See
+# docs/prd/15-品牌重塑与合规指南.md §3.1 step 5 (product documentation outside this
+# repository) for the three places that move as one. The importable package stays
+# `gpustack` either way.
 name = "gpustack"
 version = "v0.0.0"
-description = "GPUStack"
-authors = [{name = "GPUStack Authors", email = "contact@gpustack.ai"}]
+description = "OriginHub — AI infrastructure and LLM inference serving platform"
+license = { text = "Apache-2.0" }
+# The upstream authors are retained because Apache-2.0 §4(c) requires the
+# original attribution to survive in a derivative work; this project's own
+# authors are added alongside rather than replacing them.
+authors = [
+    { name = "GPUStack Authors", email = "contact@gpustack.ai" },
+    { name = "OriginHub Authors" },
+]
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
 dependencies = [
     "fastapi>=0.115.0,<0.137.0",
     "sqlmodel>=0.0.18",
@@ -97,6 +115,10 @@ dev = [
 ]
 
 [project.scripts]
+# Both names work. The upstream one is kept so existing container entrypoints,
+# systemd units and operator muscle memory keep functioning through the rebrand;
+# removing it is a separate, announced breaking change.
+originhub = "gpustack.main:main"
 gpustack = "gpustack.main:main"
 
 [build-system]

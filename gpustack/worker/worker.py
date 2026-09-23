@@ -16,6 +16,7 @@ import uvicorn
 from urllib.parse import urlparse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from gpustack import branding
 from gpustack.api import exceptions
 from gpustack.config.config import (
     Config,
@@ -248,7 +249,7 @@ class Worker:
         Start the worker.
         """
 
-        logger.info("Starting GPUStack worker.")
+        logger.info(f"Starting {branding.PRODUCT_NAME} worker.")
 
         add_signal_handlers_in_loop()
 
@@ -346,7 +347,7 @@ class Worker:
 
         # wait for a while to let other tasks start
         await asyncio.sleep(0.5)
-        logger.info("GPUStack worker startup completed.")
+        logger.info(f"{branding.PRODUCT_NAME} worker startup completed.")
 
         await asyncio.gather(*self._async_tasks)
 
@@ -373,7 +374,7 @@ class Worker:
                 await kube_session.close()
 
         app = FastAPI(
-            title="GPUStack Worker",
+            title=f"{branding.PRODUCT_NAME} Worker",
             response_model_exclude_unset=True,
             lifespan=lifespan,
         )
