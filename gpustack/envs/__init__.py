@@ -459,6 +459,45 @@ BILLING_INVOICE_CRON = os.getenv("GPUSTACK_BILLING_INVOICE_CRON", "0 3 1 * *")
 BILLING_INVOICE_LOOKBACK_PERIODS = int(
     os.getenv("GPUSTACK_BILLING_INVOICE_LOOKBACK_PERIODS", 3)
 )
+# Billing alerts. Every condition the detector watches is a *state*, re-observed
+# on each scan, and logging each observation would bury the new problem under
+# hundreds of identical lines. So a problem is raised once, counted while it
+# persists, and logged again only on resolution or a severity change.
+#
+# The interval is deliberately slack: these conditions change on the timescale of
+# a rating sweep and a billing period, not of a request, and a faster scan would
+# only re-read the same rows.
+BILLING_ALERT_INTERVAL_SECONDS = int(
+    os.getenv("GPUSTACK_BILLING_ALERT_INTERVAL_SECONDS", 300)
+)
+# Days an invoice may sit issued-but-unpaid before it is worth an alert. The
+# grace exists because issuing and collecting are one step for a funded org and
+# two for an unfunded one; alerting on the transient would fire for every
+# statement ever written.
+BILLING_ALERT_UNPAID_GRACE_DAYS = int(
+    os.getenv("GPUSTACK_BILLING_ALERT_UNPAID_GRACE_DAYS", 3)
+)
+# Days after which an unpaid invoice escalates to critical — a week unpaid is a
+# collections problem, not a blip. Must be at least the grace, or an alert would
+# escalate before it existed.
+BILLING_ALERT_UNPAID_CRITICAL_DAYS = int(
+    os.getenv("GPUSTACK_BILLING_ALERT_UNPAID_CRITICAL_DAYS", 7)
+)
+# Which principals money may actually be taken from, as a comma-separated list of
+# principal ids. Empty (the default) means every principal, i.e. ``enforce`` is
+# all-or-nothing as it has always been.
+#
+# This is the gradual-rollout knob, and it governs *money movement only*:
+# settlement and invoicing. Rating keeps writing the ledger for everybody, so a
+# principal outside the list is still priced, still appears in reconciliation,
+# and still has its charges waiting as PENDING — which is what makes turning the
+# list into "everyone" a switch rather than a backfill. Suspension follows from
+# the debit, so an org outside the list is never refused for arrears.
+#
+# Deliberately not applied to quota ceilings: those are limits an operator
+# configured on purpose, and silently not enforcing one because its owner is
+# outside a rollout list is the kind of surprise that ends in an unbilled month.
+BILLING_ENFORCE_PRINCIPALS = os.getenv("GPUSTACK_BILLING_ENFORCE_PRINCIPALS", "")
 
 # ``resource_events`` hot/cold archival — same shape as the model_usage_details
 # pair above. The events table grows much slower (lifecycle events, not per

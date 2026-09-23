@@ -297,6 +297,14 @@ worker_client_router.include_router(
 # Tenant-aware routers: any logged-in user can hit them; the handlers
 # filter by TenantContext (owner_principal_id / cluster visibility).
 tenant_routers = model_routers + [
+    # A tenant's own billing: its balance and what a top-up must cover, and the
+    # endpoint that spends a redemption code. Whose wallet it is comes from the
+    # tenant context, never from the request body.
+    {
+        "router": billing.tenant_router,
+        "prefix": "/billing",
+        "tags": ["Billing"],
+    },
     {"router": gpu_devices.router, "prefix": "/gpu-devices", "tags": ["GPU Devices"]},
     {
         "router": model_provider.router,
@@ -410,6 +418,26 @@ admin_routers = [
     {
         "router": billing.invoice_router,
         "prefix": "/billing/invoices",
+        "tags": ["Billing"],
+    },
+    # Balances, the audit trail, and manual corrections. All three are admin-only
+    # by virtue of this list's mount dependency: they expose every tenant's money,
+    # and an adjustment moves it. Tenants get their own view through
+    # ``billing.tenant_router`` below, scoped by the tenant context rather than by
+    # a parameter they supply.
+    {
+        "router": billing.wallet_router,
+        "prefix": "/billing/wallets",
+        "tags": ["Billing"],
+    },
+    {
+        "router": billing.ledger_router,
+        "prefix": "/billing/ledger",
+        "tags": ["Billing"],
+    },
+    {
+        "router": billing.adjustment_router,
+        "prefix": "/billing/adjustments",
         "tags": ["Billing"],
     },
 ]

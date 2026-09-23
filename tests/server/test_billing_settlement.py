@@ -23,6 +23,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from unittest.mock import patch
 
+from gpustack import envs
 from gpustack.api.exceptions import AlreadyExistsException, InvalidException
 from gpustack.schemas.api_keys import ApiKey
 from gpustack.schemas.billing import (
@@ -44,6 +45,8 @@ from gpustack.schemas.billing import (
 from gpustack.server import billing_settlement
 from gpustack.server.billing_rater import BillingMode
 from gpustack.server.billing_settlement import (
+    in_enforce_scope,
+    enforce_scope,
     outstanding_charges,
     outstanding_invoices,
     BillingSettler,
@@ -57,6 +60,7 @@ from gpustack.server.billing_settlement import (
 
 NOW = datetime(2026, 9, 23, 12, 0, 0, tzinfo=timezone.utc)
 ORG = 990101
+ORG_B = 990102
 OTHER_ORG = 990102
 
 
@@ -675,3 +679,78 @@ async def test_a_settled_invoice_is_not_counted_as_owed(engine, session_factory)
     async with session_factory() as s:
         assert await outstanding_invoices(s, ORG) == Decimal(0)
         assert await outstanding_charges(s, ORG) == Decimal(0)
+
+
+# ---------------------------------------------------------------------------
+# The rollout whitelist: rating for everyone, charging a named few
+# ---------------------------------------------------------------------------
+
+
+def test_enforce_scope_parsing():
+    assert enforce_scope("") is None  # empty means everybody
+    assert enforce_scope("   ") is None
+    assert enforce_scope("all") is None
+    assert enforce_scope("*") is None
+    assert enforce_scope("1, 2 ,3") == frozenset({1, 2, 3})
+    # An unparseable list must not fall back to "everybody": that would be the
+    # difference between charging nobody and charging everyone, decided by a typo.
+    with pytest.raises(ValueError) as exc_info:
+        enforce_scope("1,acme")
+    assert "GPUSTACK_BILLING_ENFORCE_PRINCIPALS" in str(exc_info.value)
+
+
+def test_in_enforce_scope():
+    assert in_enforce_scope(7, None) is True
+    assert in_enforce_scope(7, frozenset({7})) is True
+    assert in_enforce_scope(8, frozenset({7})) is False
+    assert in_enforce_scope(None, None) is False
+
+
+@pytest.mark.asyncio
+async def test_an_org_outside_the_whitelist_is_rated_but_not_charged(
+    engine, session_factory, monkeypatch
+):
+    """The gradual-rollout property: its charges wait rather than vanish."""
+    monkeypatch.setattr(envs, "BILLING_ENFORCE_PRINCIPALS", str(ORG))
+    await _seed(
+        session_factory,
+        _wallet(ORG, balance="100"),
+        _wallet(ORG_B, balance="100"),
+        _charge(1, principal_id=ORG, amount="5.00"),
+        _charge(2, principal_id=ORG_B, amount="7.00"),
+    )
+
+    report = await BillingSettler(mode=BillingMode.ENFORCE).settle_once()
+
+    assert report.entries_settled == 1
+    assert report.entries_out_of_scope == 1
+    assert report.suspended == []
+    wallets = {w.principal_id: w for w in await _wallets(engine)}
+    assert wallets[ORG].balance == Decimal("95.00")
+    # Untouched: not debited, not suspended.
+    assert wallets[ORG_B].balance == Decimal("100")
+    async with AsyncSession(engine) as s:
+        rows = {e.id: e for e in (await s.exec(select(LedgerEntry))).all()}
+    assert rows[1].status == LedgerStatus.SETTLED.value
+    assert rows[2].status == LedgerStatus.PENDING.value
+
+
+@pytest.mark.asyncio
+async def test_widening_the_whitelist_collects_what_waited(
+    engine, session_factory, monkeypatch
+):
+    """Turning the list into "everyone" is a switch, not a backfill."""
+    monkeypatch.setattr(envs, "BILLING_ENFORCE_PRINCIPALS", str(ORG))
+    await _seed(
+        session_factory,
+        _wallet(ORG_B, balance="100"),
+        _charge(2, principal_id=ORG_B, amount="7.00"),
+    )
+    first = await BillingSettler(mode=BillingMode.ENFORCE).settle_once()
+    assert first.entries_settled == 0
+
+    monkeypatch.setattr(envs, "BILLING_ENFORCE_PRINCIPALS", "")
+    second = await BillingSettler(mode=BillingMode.ENFORCE).settle_once()
+
+    assert second.entries_settled == 1
+    assert (await _wallets(engine))[0].balance == Decimal("93.00")

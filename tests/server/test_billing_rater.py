@@ -279,9 +279,18 @@ async def test_interrupted_request_is_not_charged(engine, session_factory):
 
 
 @pytest.mark.asyncio
-async def test_cached_above_prompt_clamps_instead_of_going_negative(
-    engine, session_factory
+async def test_cached_above_prompt_never_bills_more_than_the_prompt_held(
+    engine, session_factory, caplog
 ):
+    """Contradictory upstream data must not become an overcharge.
+
+    A cached count above the prompt count cannot be true — the subset exceeds the
+    set — so one of the two numbers is wrong. Billing the larger one charges for
+    tokens the request's own accounting says do not exist, which is an overcharge
+    caused by somebody else's bug and ends in a refund. Clamping to the prompt
+    can only bill less than the malformed row claims, and that is the recoverable
+    direction.
+    """
     await _seed(
         session_factory,
         _price(1, SKU_TOKEN_PROMPT, "0.002"),
@@ -289,12 +298,15 @@ async def test_cached_above_prompt_clamps_instead_of_going_negative(
         _detail(100, prompt=100, cached=250, completion=0),
     )
 
-    await BillingRater(mode=BillingMode.SHADOW).rate_once()
+    with caplog.at_level("WARNING", logger="gpustack.server.billing_rater"):
+        await BillingRater(mode=BillingMode.SHADOW).rate_once()
 
     entries = {e.sku: e for e in await _ledger(engine)}
     assert SKU_TOKEN_PROMPT not in entries, "a zero-quantity SKU writes no row"
-    assert entries[SKU_TOKEN_CACHED].quantity == Decimal(250)
+    # Clamped to the prompt count, not billed at the reported 250.
+    assert entries[SKU_TOKEN_CACHED].quantity == Decimal(100)
     assert all(e.amount >= 0 for e in entries.values())
+    assert "clamping" in caplog.text
 
 
 @pytest.mark.asyncio

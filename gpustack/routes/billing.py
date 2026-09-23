@@ -18,6 +18,7 @@ changing ``price`` on the row (which bumps ``version``) or closing its window
 and adding a new one.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -25,6 +26,7 @@ from enum import Enum
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
+from pydantic import Field
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import select
@@ -35,13 +37,20 @@ from gpustack.api.exceptions import (
     NotFoundException,
 )
 from gpustack.schemas.billing import (
+    Adjustment,
+    AdjustmentCreate,
+    AdjustmentListParams,
+    AdjustmentPublic,
+    AdjustmentsPublic,
     Invoice,
     InvoiceDetail,
     InvoiceItem,
     InvoiceItemPublic,
     InvoiceListParams,
     InvoicesPublic,
+    LedgerEntriesPublic,
     LedgerEntry,
+    LedgerListParams,
     PriceBookEntriesPublic,
     PriceBookEntry,
     PriceBookEntryCreate,
@@ -54,6 +63,9 @@ from gpustack.schemas.billing import (
     QuotaPublic,
     QuotasPublic,
     QuotaUpdate,
+    Wallet,
+    WalletListParams,
+    WalletState,
     unit_for_sku,
 )
 from gpustack.server.billing_pricing import (
@@ -62,6 +74,12 @@ from gpustack.server.billing_pricing import (
     compute_amount,
     invalidate_price_cache,
     resolve_price,
+)
+from gpustack.server.billing_settlement import (
+    apply_adjustment,
+    outstanding_invoices,
+    outstanding_realtime_charges,
+    redeem_code,
 )
 from gpustack.server.billing_quota import (
     assert_no_duplicate,
@@ -72,7 +90,8 @@ from gpustack.server.billing_quota import (
     window_used,
 )
 from gpustack.server.db import async_session
-from gpustack.server.deps import SessionDep
+from gpustack.server.deps import SessionDep, TenantContextDep
+from gpustack.schemas.common import PaginatedList
 from gpustack.utils.export_delivery import XLSX_MEDIA_TYPE
 from gpustack.utils.export_limits import attachment_headers
 from gpustack.utils.tabular_export import build_xlsx
@@ -785,3 +804,329 @@ async def _one_invoice_or_404(session, id: int) -> Invoice:
     if not existing or existing.deleted_at is not None:
         raise NotFoundException(message=f"invoice {id} not found")
     return existing
+
+
+# ---------------------------------------------------------------------------
+# Wallets (WP7.1) — balances, and the numbers behind a 402
+# ---------------------------------------------------------------------------
+
+wallet_router = APIRouter()
+ledger_router = APIRouter()
+adjustment_router = APIRouter()
+# Tenant-facing: an org reads its own balance and redeems its own codes. Mounted
+# under tenant_routers, so the caller's principal is resolved by the tenant
+# context rather than passed in — a tenant that could name whose wallet to read
+# could read anybody's.
+tenant_router = APIRouter()
+
+
+class RedeemRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class RedeemResponse(BaseModel):
+    amount: Decimal
+    currency: str
+    # The balance after the credit, so the tenant sees the effect of the code in
+    # the same response rather than having to ask again.
+    balance: Decimal
+    suspended: bool
+    used_at: Optional[datetime] = None
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+async def _wallet_state(session, wallet) -> WalletState:
+    """One wallet with what it owes, split the way the two pipelines collect it."""
+    state = WalletState.model_validate(wallet, from_attributes=True)
+    state.available = Decimal(wallet.balance or 0) - Decimal(wallet.frozen or 0)
+    state.outstanding_realtime = await outstanding_realtime_charges(
+        session, wallet.principal_id
+    )
+    state.outstanding_invoices = await outstanding_invoices(session, wallet.principal_id)
+    state.outstanding_total = (
+        state.outstanding_realtime + state.outstanding_invoices
+    )
+    return state
+
+
+@wallet_router.get("", response_model=PaginatedList[WalletState])
+async def list_wallets(
+    params: WalletListParams = Depends(),
+    principal_id: Optional[int] = None,
+    suspended: Optional[bool] = None,
+    search: Optional[str] = None,
+):
+    """Every wallet, for the operator view: who is in arrears, who is suspended."""
+    fields = {"deleted_at": None}
+    if principal_id is not None:
+        fields["principal_id"] = principal_id
+    if suspended is not None:
+        fields["suspended"] = suspended
+    fuzzy_fields = {"principal_name": search} if search else {}
+
+    if params.watch:
+        return StreamingResponse(
+            Wallet.streaming(fields=fields, fuzzy_fields=fuzzy_fields),
+            media_type="text/event-stream",
+        )
+
+    async with async_session() as session:
+        page = await Wallet.paginated_by_query(
+            session=session,
+            fields=fields,
+            fuzzy_fields=fuzzy_fields,
+            page=params.page,
+            per_page=params.perPage,
+            order_by=params.sort_by,
+        )
+    states = [_wallet_state(session, w) for w in page.items]
+    return PaginatedList[WalletState](
+        items=await _gather(states), pagination=page.pagination
+    )
+
+
+async def _gather(awaitables):
+    return list(await asyncio.gather(*awaitables))
+
+
+@wallet_router.get("/{principal_id}", response_model=WalletState)
+async def get_wallet(session: SessionDep, principal_id: int):
+    wallet = await _wallet_or_404(session, principal_id)
+    return await _wallet_state(session, wallet)
+
+
+@tenant_router.get("/wallet", response_model=WalletState)
+async def get_my_wallet(session: SessionDep, ctx: TenantContextDep):
+    """The caller's own wallet, and what a top-up has to cover.
+
+    A wallet is created on first use rather than at signup, so a principal that
+    has never been charged has no row. Answering 404 for that would make "you
+    have no billing yet" look like an error, so the state is synthesised instead:
+    zero balance, nothing owed, not suspended.
+    """
+    principal_id = ctx.current_principal_id or ctx.user.id
+    wallet = (
+        await session.exec(
+            select(Wallet).where(
+                Wallet.principal_id == principal_id, Wallet.deleted_at.is_(None)
+            )
+        )
+    ).first()
+    if wallet is None:
+        return WalletState(
+            id=0,
+            principal_id=principal_id,
+            principal_name=getattr(ctx.user, "name", None),
+            currency="CNY",
+            balance=Decimal(0),
+            frozen=Decimal(0),
+            available=Decimal(0),
+            suspended=False,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            outstanding_realtime=await outstanding_realtime_charges(
+                session, principal_id
+            ),
+            outstanding_invoices=await outstanding_invoices(session, principal_id),
+            outstanding_total=Decimal(0),
+        )
+    return await _wallet_state(session, wallet)
+
+
+@tenant_router.post("/redeem", response_model=RedeemResponse)
+async def redeem(session: SessionDep, ctx: TenantContextDep, input: RedeemRequest):
+    """Spend a top-up code on the caller's own wallet.
+
+    The code is the idempotency key: it can only be used once, and a concurrent
+    second attempt loses the compare-and-set inside ``redeem_code`` rather than
+    crediting twice. Errors are the service's — an unknown, spent or expired code
+    is a 422 or 409, not a 500.
+    """
+    principal_id = ctx.current_principal_id or ctx.user.id
+    redemption = await redeem_code(
+        session,
+        code=input.code,
+        principal_id=principal_id,
+        user_id=ctx.user.id,
+    )
+    wallet = (
+        await session.exec(
+            select(Wallet).where(
+                Wallet.principal_id == principal_id, Wallet.deleted_at.is_(None)
+            )
+        )
+    ).first()
+    return RedeemResponse(
+        amount=Decimal(redemption.amount),
+        currency=redemption.currency,
+        balance=Decimal(wallet.balance) if wallet else Decimal(0),
+        suspended=bool(wallet.suspended) if wallet else False,
+        used_at=redemption.used_at,
+    )
+
+
+async def _wallet_or_404(session, principal_id: int) -> Wallet:
+    wallet = (
+        await session.exec(
+            select(Wallet).where(
+                Wallet.principal_id == principal_id, Wallet.deleted_at.is_(None)
+            )
+        )
+    ).first()
+    if wallet is None:
+        raise NotFoundException(message=f"wallet for principal {principal_id} not found")
+    return wallet
+
+
+# ---------------------------------------------------------------------------
+# Ledger (WP7.1) — the audit trail behind every charge
+# ---------------------------------------------------------------------------
+
+
+@ledger_router.get("", response_model=LedgerEntriesPublic)
+async def list_ledger(
+    params: LedgerListParams = Depends(),
+    principal_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    api_key_id: Optional[int] = None,
+    sku: Optional[str] = None,
+    model_name: Optional[str] = None,
+    settle_mode: Optional[str] = None,
+    status: Optional[str] = None,
+    direction: Optional[str] = None,
+    invoice_id: Optional[int] = None,
+    request_id: Optional[str] = None,
+    occurred_after: Optional[datetime] = None,
+    occurred_before: Optional[datetime] = None,
+    search: Optional[str] = None,
+):
+    """Ledger rows, filterable the ways a reconciliation actually asks.
+
+    ``request_id`` is an exact filter rather than a fuzzy one: it is the handle a
+    dispute arrives with, and a partial match would return rows from somebody
+    else's request. The time range is half-open (``>= after``, ``< before``) so
+    paging a period in chunks neither drops nor duplicates a row on a boundary.
+    """
+    fields = {"deleted_at": None}
+    for name, value in (
+        ("principal_id", principal_id),
+        ("user_id", user_id),
+        ("api_key_id", api_key_id),
+        ("sku", sku),
+        ("model_name", model_name),
+        ("settle_mode", settle_mode),
+        ("status", status),
+        ("direction", direction),
+        ("invoice_id", invoice_id),
+        ("request_id", request_id),
+    ):
+        if value is not None:
+            fields[name] = value
+    fuzzy_fields = {"resource_name": search} if search else {}
+
+    extra_conditions = []
+    if occurred_after is not None:
+        extra_conditions.append(LedgerEntry.occurred_at >= occurred_after)
+    if occurred_before is not None:
+        extra_conditions.append(LedgerEntry.occurred_at < occurred_before)
+
+    if params.watch:
+        return StreamingResponse(
+            LedgerEntry.streaming(fields=fields, fuzzy_fields=fuzzy_fields),
+            media_type="text/event-stream",
+        )
+
+    async with async_session() as session:
+        return await LedgerEntry.paginated_by_query(
+            session=session,
+            fields=fields,
+            fuzzy_fields=fuzzy_fields,
+            extra_conditions=extra_conditions or None,
+            page=params.page,
+            per_page=params.perPage,
+            order_by=params.sort_by,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Adjustments (WP4.5) — money an operator moves by hand
+# ---------------------------------------------------------------------------
+
+
+@adjustment_router.post("", response_model=AdjustmentPublic)
+async def create_adjustment(
+    session: SessionDep, ctx: TenantContextDep, input: AdjustmentCreate
+):
+    """Credit or debit a wallet by hand, once per idempotency key.
+
+    The author is the authenticated caller and cannot be named in the body: an
+    adjustment whose operator could be set by whoever sent the request would be
+    an anonymous money movement with an audit trail that proves nothing.
+    """
+    principal_name = await _principal_name(session, input.principal_id)
+    adjustment = await apply_adjustment(
+        session,
+        principal_id=input.principal_id,
+        amount=Decimal(input.amount),
+        reason=input.reason,
+        idempotency_key=input.idempotency_key,
+        operator_id=ctx.user.id,
+        operator_name=getattr(ctx.user, "name", None),
+        principal_name=principal_name,
+        currency=input.currency,
+    )
+    return AdjustmentPublic.model_validate(adjustment, from_attributes=True)
+
+
+@adjustment_router.get("", response_model=AdjustmentsPublic)
+async def list_adjustments(
+    params: AdjustmentListParams = Depends(),
+    principal_id: Optional[int] = None,
+    operator_id: Optional[int] = None,
+    idempotency_key: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    """The correction trail. Read-only: a correction of a correction is another
+    adjustment, so this list stays complete."""
+    fields = {"deleted_at": None}
+    if principal_id is not None:
+        fields["principal_id"] = principal_id
+    if operator_id is not None:
+        fields["operator_id"] = operator_id
+    if idempotency_key:
+        fields["idempotency_key"] = idempotency_key
+    fuzzy_fields = {"reason": search} if search else {}
+
+    if params.watch:
+        return StreamingResponse(
+            Adjustment.streaming(fields=fields, fuzzy_fields=fuzzy_fields),
+            media_type="text/event-stream",
+        )
+
+    async with async_session() as session:
+        return await Adjustment.paginated_by_query(
+            session=session,
+            fields=fields,
+            fuzzy_fields=fuzzy_fields,
+            page=params.page,
+            per_page=params.perPage,
+            order_by=params.sort_by,
+        )
+
+
+async def _principal_name(session, principal_id: int) -> Optional[str]:
+    """Snapshot the subject's name onto the adjustment.
+
+    Read from the principals table rather than trusted from the request, and
+    optional: a correction against a principal that has since been deleted still
+    has to be recordable, and its row is what says who it was for.
+    """
+    from gpustack.schemas.principals import Principal
+
+    row = (
+        await session.exec(select(Principal.name).where(Principal.id == principal_id))
+    ).first()
+    return row if isinstance(row, str) else None

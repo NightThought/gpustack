@@ -100,6 +100,7 @@ from gpustack.schemas.resource_events import (  # noqa: F401  table registration
     ResourceEventArchive,
 )
 from gpustack.schemas.billing import (  # noqa: F401  table registration
+    Adjustment,
     BillingSession,
     Invoice,
     InvoiceItem,

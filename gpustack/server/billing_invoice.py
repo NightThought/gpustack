@@ -83,6 +83,8 @@ from gpustack.server.billing_pricing import as_utc
 from gpustack.server.billing_rater import BillingMode, billing_mode
 from gpustack.server.billing_settlement import (
     debit_wallet,
+    enforce_scope,
+    in_enforce_scope,
     resume_wallet_if_funded,
     suspend_wallet,
 )
@@ -199,6 +201,9 @@ class InvoicingReport:
     # Uninvoiced entries left for a later period, because every closed period
     # that could hold them already has its one invoice.
     waiting_entries: int = 0
+    # Principals whose deferred charges were rated but not invoiced, because they
+    # are outside ``GPUSTACK_BILLING_ENFORCE_PRINCIPALS``.
+    out_of_scope_principals: int = 0
     suspended: List[int] = field(default_factory=list)
     resumed: List[int] = field(default_factory=list)
     duration_ms: int = 0
@@ -212,6 +217,11 @@ class InvoicingReport:
             f"collected / {self.amount_collected}, {self.unpaid_invoices} unpaid / "
             f"{self.amount_unpaid}, suspended={self.suspended} "
             f"resumed={self.resumed}"
+            + (
+                f", {self.out_of_scope_principals} outside the enforce whitelist"
+                if self.out_of_scope_principals
+                else ""
+            )
             + (
                 f", {self.carried_entries} carried from earlier periods"
                 if self.carried_entries
@@ -451,6 +461,7 @@ class BillingInvoicer:
     async def _issue_closed_periods(
         self, session: AsyncSession, report: InvoicingReport, *, now: datetime
     ) -> None:
+        scope = enforce_scope()
         for period_start, period_end in closed_periods(
             self._period, now=now, lookback=self._lookback
         ):
@@ -459,6 +470,14 @@ class BillingInvoicer:
                 session, period_end
             )
             for principal_id, entry_count, total in subjects:
+                if not in_enforce_scope(principal_id, scope):
+                    # Rated and priced, deliberately not billed: this org is
+                    # outside the rollout whitelist. The entries stay PENDING and
+                    # uninvoiced, so bringing the org into scope later invoices
+                    # them into the period then being closed — no backfill, and
+                    # nothing lost.
+                    report.out_of_scope_principals += 1
+                    continue
                 if await self._invoice_exists(session, principal_id, period_start):
                     # One statement per period is the rule, and it is not bent
                     # for late usage: what arrives after a period was invoiced

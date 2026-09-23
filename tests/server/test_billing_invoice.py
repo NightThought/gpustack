@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from gpustack import envs
 from gpustack.schemas.api_keys import ApiKey
 from gpustack.schemas.billing import (
     SKU_GPU_HOUR_PREFIX,
@@ -855,3 +856,68 @@ async def test_the_summary_names_what_a_pass_did(engine, session_factory):
     assert "monthly" in text
     assert str(report.amount_invoiced) in text
     assert report.duration_ms >= 0
+
+
+# ---------------------------------------------------------------------------
+# The rollout whitelist
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_org_outside_the_whitelist_gets_no_statement(
+    engine, session_factory, monkeypatch
+):
+    """Its deferred charges stay rated, PENDING and uninvoiced — waiting, not
+    lost — so bringing it into scope later is a switch rather than a backfill."""
+    monkeypatch.setattr(envs, "BILLING_ENFORCE_PRINCIPALS", str(ORG_A))
+    await _seed(
+        session_factory,
+        _wallet(ORG_A, balance="10000"),
+        _wallet(ORG_B, balance="10000"),
+        _entry(1, principal_id=ORG_A, quantity="12", amount="150.00",
+               occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(2, principal_id=ORG_B, quantity="4", amount="50.00",
+               occurred_at=AUGUST + timedelta(hours=2)),
+    )
+
+    report = await _invoicer().invoice_once(now=datetime(2026, 9, 5))
+
+    assert report.out_of_scope_principals == 1
+    assert report.invoices_issued == 1
+    invoices = {i.principal_id: i for i in await _invoices(engine)}
+    assert list(invoices) == [ORG_A]
+    entries = await _entries(engine)
+    assert entries[2].invoice_id is None
+    assert entries[2].status == LedgerStatus.PENDING.value
+    # And no money moved for the org that is not being charged yet.
+    wallets = await _wallets(engine)
+    assert wallets[ORG_B].balance == Decimal("10000")
+
+
+@pytest.mark.asyncio
+async def test_bringing_an_org_into_scope_bills_what_waited(
+    engine, session_factory, monkeypatch
+):
+    monkeypatch.setattr(envs, "BILLING_ENFORCE_PRINCIPALS", str(ORG_A))
+    await _seed(
+        session_factory,
+        _wallet(ORG_B, balance="10000"),
+        _entry(2, principal_id=ORG_B, quantity="4", amount="50.00",
+               occurred_at=AUGUST + timedelta(hours=2)),
+    )
+    invoicer = _invoicer()
+    assert (await invoicer.invoice_once(now=datetime(2026, 9, 5))).invoices_issued == 0
+
+    monkeypatch.setattr(envs, "BILLING_ENFORCE_PRINCIPALS", "")
+    # A month later. The waiting usage gets a statement for the period it
+    # actually belongs to — August was never invoiced, so there is nothing to
+    # carry it onto and no reason to misattribute it to September.
+    report = await invoicer.invoice_once(now=datetime(2026, 10, 5))
+
+    assert report.invoices_issued == 1
+    assert report.carried_entries == 0
+    invoice = (await _invoices(engine))[0]
+    assert invoice.principal_id == ORG_B
+    assert invoice.period_start.replace(tzinfo=None) == AUGUST
+    assert Decimal(invoice.amount) == Decimal("50.00")
+    assert (await _wallets(engine))[ORG_B].balance == Decimal("9950")

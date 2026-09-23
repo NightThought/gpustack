@@ -12,6 +12,7 @@ from prometheus_client.core import (
 import uvicorn
 from gpustack.config.config import Config
 from gpustack.exporter.bus_metrics import BusMetricsCollector
+from gpustack.exporter.billing_metrics import BillingMetricsCollector
 from gpustack.logging import setup_logging
 from gpustack.schemas.cache_providers import DEFAULT_METRICS_PORT_NAME
 from gpustack.schemas.cache_services import (
@@ -347,6 +348,9 @@ class MetricExporter(Collector):
         try:
             REGISTRY.register(self)
             REGISTRY.register(BusMetricsCollector())
+            # Billing health, from the alert detector's snapshot rather than the
+            # database: a scrape must not inherit a billing query's latency.
+            REGISTRY.register(BillingMetricsCollector())
 
             # Start FastAPI server
             app = FastAPI(

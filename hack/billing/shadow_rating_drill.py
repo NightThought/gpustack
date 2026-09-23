@@ -13,7 +13,8 @@ awkward cases the rater must not get wrong:
   * an interrupted stream (``completed=false``)      -> not billed at all
   * a model nobody priced                            -> VOID marker
   * usage with no attributable payer                 -> VOID marker
-  * cached tokens above prompt tokens (upstream bug) -> clamped, never negative
+  * cached tokens above prompt tokens (upstream bug) -> clamped to the prompt,
+    never billed above what the request says it contained
   * an unsealed metering bucket                      -> skipped until sealed
   * a CPU-only instance                              -> VOID, out of v1 scope
 
@@ -140,7 +141,7 @@ REQUESTS = [
     (9901006, "Qwen3-8B", 900, 0, 200, False, ORG_A, "流式中断→不计费"),
     (9901007, "Drill-Unpriced", 1500, 0, 400, True, ORG_A, "未配价→VOID"),
     (9901008, "Qwen3-8B", 700, 0, 150, True, None, "无归属 payer→VOID"),
-    (9901009, "Qwen3-8B", 100, 250, 0, True, ORG_B, "cached>prompt→clamp"),
+    (9901009, "Qwen3-8B", 100, 250, 0, True, ORG_B, "cached>prompt→钳到 100"),
 ]
 
 # (id, meter, resource_type, name, quantity, sku_count, gpu_type, sealed,
@@ -180,11 +181,15 @@ def expected_ledger() -> Dict[Tuple[str, int, str], Tuple[str, Decimal, Decimal]
     for rid, model, prompt, cached, completion, completed, payer, _s in REQUESTS:
         if not completed:
             continue
-        # The cached subset is billed once, under its own SKU.
-        billable_prompt = max(Decimal(prompt) - Decimal(cached), Decimal(0))
+        # The cached subset is billed once, under its own SKU — and can never
+        # exceed the prompt it is a subset of. Contradictory upstream data is
+        # clamped *down* rather than billed up, because billing the larger number
+        # charges for tokens the request's own accounting says do not exist.
+        cached_billed = min(Decimal(cached), Decimal(prompt))
+        billable_prompt = Decimal(prompt) - cached_billed
         pairs = [
             (SKU_TOKEN_PROMPT, billable_prompt),
-            (SKU_TOKEN_CACHED, Decimal(cached)),
+            (SKU_TOKEN_CACHED, cached_billed),
             (SKU_TOKEN_COMPLETION, Decimal(completion)),
         ]
         unpriced = model not in PRICED_MODELS or payer is None

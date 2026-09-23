@@ -337,18 +337,28 @@ class BillingRater:
         prompt count *and* the cached count would bill those tokens twice.
         Zero-quantity SKUs are dropped: a request with no cache hit should not
         produce a zero-amount ledger row.
+
+        A cached count above the prompt count is contradictory — the subset
+        cannot exceed the set — and arrives from an upstream reporting bug. The
+        cached figure is clamped to the prompt rather than the prompt being
+        clamped to zero and the cached count trusted, and the direction matters:
+        trusting the larger number bills tokens the request's own accounting says
+        do not exist, which is an overcharge caused by somebody else's bug and
+        ends in a refund and a tenant who no longer believes the bill. Clamping
+        can only ever bill less than the malformed row claims, and an
+        undercharge on a row that was self-contradictory is the recoverable
+        direction.
         """
         cached = Decimal(detail.prompt_cached_token_count or 0)
         prompt_total = Decimal(detail.prompt_token_count or 0)
-        prompt_billable = prompt_total - cached
-        if prompt_billable < 0:
-            # A cached count above the prompt count is an upstream reporting
-            # bug; clamp rather than emit a negative charge.
+        if cached > prompt_total:
             logger.warning(
                 f"usage detail {detail.id}: cached tokens ({cached}) exceed prompt "
-                f"tokens ({prompt_total}); clamping the prompt SKU to zero"
+                f"tokens ({prompt_total}); clamping the cached SKU to the prompt "
+                "count rather than billing tokens the request does not contain"
             )
-            prompt_billable = Decimal(0)
+            cached = prompt_total
+        prompt_billable = prompt_total - cached
 
         pairs = [
             (SKU_TOKEN_PROMPT, prompt_billable),

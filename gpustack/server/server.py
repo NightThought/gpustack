@@ -90,6 +90,7 @@ from gpustack.server.worker_status_buffer import flush_worker_status_to_db
 from gpustack.server.metrics_collector import flush_gateway_metrics_to_db
 from gpustack.server.usage_details_archiver import UsageDetailsArchiver
 from gpustack.server.billing_rater import BillingRater
+from gpustack.server.billing_alerts import BillingAlertDetector
 from gpustack.server.billing_invoice import BillingInvoicer
 from gpustack.server.billing_settlement import BillingSettler
 from gpustack.server.resource_event_logger import ResourceEventLogger
@@ -679,6 +680,26 @@ class Server:
             f"Billing invoicer started (mode={invoicer.mode.value}, "
             f"period={invoicer.period.value})."
         )
+
+    def _start_billing_alerts(self):
+        # Leader-only, like every other billing loop: the alerts are derived from
+        # billing tables that one leader writes, and two detectors would emit two
+        # copies of every line into the same log stream. Runs in every mode,
+        # including shadow — an unpriced SKU is worth knowing about precisely
+        # while nobody is being charged yet, because that is when adding the
+        # price is still free.
+        try:
+            detector = BillingAlertDetector()
+        except Exception:
+            logger.error(
+                "Billing alert detector failed to initialize — billing alerts are "
+                "DISABLED. Rating, settlement and invoicing are unaffected.",
+                exc_info=True,
+            )
+            return
+        self._create_async_task(detector.start())
+
+        logger.debug("Billing alert detector started.")
 
     def _start_resource_usage(self):
         """Start the resource-metering pipeline: event logger → collectors →
@@ -1595,6 +1616,9 @@ class Server:
 
         # Billing Invoicer (deferred entries -> period invoices; enforce only)
         self._start_billing_invoicer()
+
+        # Billing Alerts (unpriced gaps, unpaid invoices, suspensions)
+        self._start_billing_alerts()
 
         # Resource usage metering (event logger → collectors → archiver)
         self._start_resource_usage()

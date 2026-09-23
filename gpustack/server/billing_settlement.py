@@ -35,20 +35,23 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Dict, List, Optional
+from typing import Dict, FrozenSet, List, Optional
 
 from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from gpustack import envs
 from gpustack.api.exceptions import AlreadyExistsException, InvalidException
 from gpustack.schemas.billing import (
+    SKU_WALLET_ADJUSTMENT,
     SKU_WALLET_TOPUP,
     UNIT_CURRENCY,
     BillingSession,
     Invoice,
     InvoiceStatus,
+    Adjustment,
     LedgerDirection,
     LedgerEntry,
     LedgerStatus,
@@ -69,10 +72,60 @@ logger = logging.getLogger(__name__)
 
 # Ledger provenance for wallet movements that do not come from a usage table.
 SOURCE_REDEMPTION = "billing_redemption"
+# The table an adjustment's ledger row points at, and therefore the other half
+# of its idempotency: (source_table, source_id, sku) is unique on the ledger, so
+# one adjustment row can only ever produce one wallet movement even if the code
+# above it were to run twice.
+SOURCE_ADJUSTMENT = "billing_adjustment"
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def enforce_scope(raw: Optional[str] = None) -> Optional[FrozenSet[int]]:
+    """The principals money may be taken from, or None for "everybody".
+
+    The gradual-rollout knob, and the reason it lives here rather than in the
+    rater: rating is safe to run for everyone (it only writes ledger rows), while
+    settlement and invoicing move money and suspend tenants. Splitting the two is
+    what lets a deployment rate everything, charge a whitelist, and widen that
+    whitelist without a backfill — charges for an org outside the list simply stay
+    PENDING until it is added.
+
+    Parsed on every call rather than cached so a test (or an operator who edits
+    the environment and restarts) sees exactly what is configured; the string is
+    short and the call happens once per principal per sweep.
+    """
+    value = raw if raw is not None else envs.BILLING_ENFORCE_PRINCIPALS
+    text = (value or "").strip()
+    if not text:
+        return None
+    allowed = set()
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.lower() in ("all", "*"):
+            return None
+        try:
+            allowed.add(int(part))
+        except ValueError:
+            # Refusing to start is better than silently charging nobody (an empty
+            # whitelist reads as "everyone") or charging everybody.
+            raise ValueError(
+                "GPUSTACK_BILLING_ENFORCE_PRINCIPALS must be a comma-separated "
+                f"list of principal ids (or 'all'), got {part!r}"
+            ) from None
+    return frozenset(allowed) if allowed else None
+
+
+def in_enforce_scope(principal_id: Optional[int], scope=None) -> bool:
+    """Whether this principal's charges may be collected now."""
+    if principal_id is None:
+        return False
+    allowed = enforce_scope() if scope is None else scope
+    return allowed is None or principal_id in allowed
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +224,19 @@ async def suspend_wallet(
     await suspend_keys_for_wallet(session, principal_id, commit=False)
     if commit:
         await session.commit()
+    # Told to the alert registry at the moment it happens rather than left for
+    # the next detector scan: a tenant going dark is the one billing event with a
+    # human on the other end of it. Imported here because billing_alerts reads
+    # ``outstanding_charges`` from this module, and a module-level import would
+    # close that loop.
+    from gpustack.server.billing_alerts import BillingAlertDetector
+
+    BillingAlertDetector.note_suspension(
+        principal_id,
+        balance=Decimal(wallet.balance or 0),
+        owed=await outstanding_charges(session, principal_id),
+        currency=wallet.currency or "CNY",
+    )
     return wallet
 
 
@@ -366,6 +432,10 @@ class SettlementReport:
     suspended: List[int] = field(default_factory=list)
     resumed: List[int] = field(default_factory=list)
     deferred_skipped: int = 0
+    # Rated charges left PENDING because their principal is outside
+    # ``GPUSTACK_BILLING_ENFORCE_PRINCIPALS``. Not a failure and not a backlog to
+    # drain: they wait until that org is brought into scope.
+    entries_out_of_scope: int = 0
     duration_ms: int = 0
 
     def summary(self) -> str:
@@ -376,6 +446,11 @@ class SettlementReport:
             f"{self.entries_unpaid} entries / {self.amount_unpaid} unpaid, "
             f"suspended={self.suspended} resumed={self.resumed}, "
             f"{self.deferred_skipped} deferred left for invoicing"
+            + (
+                f", {self.entries_out_of_scope} outside the enforce whitelist"
+                if self.entries_out_of_scope
+                else ""
+            )
         )
 
 
@@ -443,6 +518,7 @@ class BillingSettler:
         async with async_session() as session:
             entries = await self._pending_realtime(session)
             report.deferred_skipped = await self._count_pending_deferred(session)
+            scope = enforce_scope()
 
             by_principal: Dict[int, List[LedgerEntry]] = {}
             for entry in entries:
@@ -452,6 +528,11 @@ class BillingSettler:
                 if entry.principal_id is None:
                     report.entries_unpaid += 1
                     report.amount_unpaid += Decimal(entry.amount)
+                    continue
+                if not in_enforce_scope(entry.principal_id, scope):
+                    # Rated, priced, and deliberately not collected: this org is
+                    # outside the rollout whitelist, so its charges wait.
+                    report.entries_out_of_scope += 1
                     continue
                 by_principal.setdefault(entry.principal_id, []).append(entry)
 
@@ -611,3 +692,202 @@ class BillingSettler:
 
         await session.commit()
         return amount
+
+
+# ---------------------------------------------------------------------------
+# Manual corrections (WP4.5)
+# ---------------------------------------------------------------------------
+
+
+async def apply_adjustment(
+    session: AsyncSession,
+    *,
+    principal_id: int,
+    amount: Decimal,
+    reason: str,
+    idempotency_key: str,
+    operator_id: Optional[int] = None,
+    operator_name: Optional[str] = None,
+    principal_name: Optional[str] = None,
+    currency: str = "CNY",
+) -> Adjustment:
+    """Move money on a wallet by hand, exactly once per idempotency key.
+
+    Positive credits, negative debits. A negative adjustment that the balance
+    cannot cover is refused rather than allowed to overdraw: this is a prepaid
+    wallet, and "the operator meant to take more than was there" is a mistake to
+    surface, not a state to record.
+
+    Idempotency is the caller's key, checked twice because one check is not
+    enough. Before the write, so an ordinary retry (a client that timed out and
+    asked again) returns the original adjustment instead of a second credit —
+    and so a key reused for *different* parameters is refused rather than
+    silently ignored, which is what distinguishes a retry from a mistake. After
+    the write, by the unique constraint, so two concurrent requests with one key
+    produce one adjustment: the loser's commit fails, and it returns the winner's
+    row.
+
+    The ledger row is written in the same transaction and linked both ways
+    (``ledger_entry_id`` here, ``source_table``/``source_id`` there), so a wallet
+    movement can always be traced to the entry that explains it and to the
+    operator who made it. Its own unique key ``(source_table, source_id, sku)``
+    is the second half of the guarantee: even a bug that ran this twice for one
+    adjustment row could not produce two movements.
+
+    Money is credited before the row is committed and the suspension check runs
+    after, so a credit that lands on a suspended wallet resumes it in the same
+    call — the tenant sees service return, not a balance that moved.
+    """
+    amount = Decimal(amount)
+    if amount == 0:
+        # A zero adjustment writes a ledger row that explains nothing and makes
+        # every reconciliation sum harder to read. Refuse it.
+        raise InvalidException(message="adjustment amount must not be zero")
+    if not (reason or "").strip():
+        raise InvalidException(
+            message="adjustment reason is required — an unexplained correction "
+            "is indistinguishable from a mistake later"
+        )
+    if not (idempotency_key or "").strip():
+        raise InvalidException(message="adjustment idempotency_key is required")
+
+    existing = (
+        await session.exec(
+            select(Adjustment).where(
+                Adjustment.idempotency_key == idempotency_key,
+                Adjustment.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if existing is not None:
+        if Decimal(existing.amount) == amount and existing.principal_id == principal_id:
+            logger.info(
+                f"billing: adjustment {existing.id} replayed for idempotency key "
+                f"{idempotency_key!r}; no second movement"
+            )
+            return existing
+        raise InvalidException(
+            message=(
+                f"idempotency key {idempotency_key!r} was already used for a "
+                f"different adjustment (principal {existing.principal_id}, amount "
+                f"{existing.amount}); a key must identify one correction"
+            )
+        )
+
+    wallet = await get_or_create_wallet(session, principal_id)
+    adjustment = Adjustment(
+        principal_id=principal_id,
+        principal_name=principal_name,
+        wallet_id=wallet.id,
+        amount=amount,
+        currency=currency,
+        reason=reason.strip(),
+        operator_id=operator_id,
+        operator_name=operator_name,
+        idempotency_key=idempotency_key.strip(),
+    )
+    session.add(adjustment)
+    try:
+        # Flush first: the ledger row names this one as its source, so it needs
+        # an id before the entry is built.
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        return await _adjustment_after_conflict(session, idempotency_key)
+
+    magnitude = abs(amount)
+    if amount > 0:
+        await credit_wallet(session, principal_id, magnitude)
+        direction = LedgerDirection.CREDIT
+    else:
+        if not await debit_wallet(session, principal_id, magnitude):
+            await session.rollback()
+            raise InvalidException(
+                message=(
+                    f"wallet balance is below the {magnitude} {currency} this "
+                    "adjustment would take; a prepaid wallet cannot be overdrawn "
+                    "by a correction"
+                )
+            )
+        direction = LedgerDirection.DEBIT
+
+    entry = LedgerEntry(
+        source_table=SOURCE_ADJUSTMENT,
+        source_id=adjustment.id,
+        principal_id=principal_id,
+        principal_name=principal_name,
+        user_id=operator_id,
+        user_name=operator_name,
+        sku=SKU_WALLET_ADJUSTMENT,
+        quantity=magnitude,
+        unit=UNIT_CURRENCY,
+        unit_price=Decimal(1),
+        amount=magnitude,
+        currency=currency,
+        direction=direction,
+        # Settled at once: a correction is not a charge awaiting collection, and
+        # leaving it PENDING would put it in front of the realtime settler, which
+        # would try to take money that has already moved.
+        settle_mode=SettleMode.REALTIME,
+        status=LedgerStatus.SETTLED,
+        settled_at=_utcnow(),
+        occurred_at=_utcnow(),
+    )
+    session.add(entry)
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        return await _adjustment_after_conflict(session, idempotency_key)
+
+    adjustment.ledger_entry_id = entry.id
+    session.add(adjustment)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        return await _adjustment_after_conflict(session, idempotency_key)
+
+    logger.warning(
+        f"billing: manual adjustment {adjustment.id} of {amount:+} {currency} on "
+        f"principal {principal_id} by operator {operator_name or operator_id} "
+        f"({reason.strip()!r})"
+    )
+    # A credit may clear a suspension; a debit cannot create one (a wallet that
+    # could cover the debit is by definition not in arrears for it), but the check
+    # is cheap and keeps the rule in one place.
+    await resume_wallet_if_funded(session, principal_id, commit=True)
+    await session.refresh(adjustment)
+    return adjustment
+
+
+async def _adjustment_after_conflict(
+    session: AsyncSession, idempotency_key: str
+) -> Adjustment:
+    """Return the adjustment that won the race on this idempotency key.
+
+    Reached when the unique constraint rejects a concurrent insert. The caller
+    gets the winner's row rather than an error, because from outside the two
+    requests were the same request — and an error here would invite the operator
+    to retry, which is the one response that risks a second movement.
+    """
+    winner = (
+        await session.exec(
+            select(Adjustment).where(
+                Adjustment.idempotency_key == idempotency_key,
+                Adjustment.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if winner is None:
+        raise AlreadyExistsException(
+            message=(
+                f"adjustment for idempotency key {idempotency_key!r} conflicted "
+                "and no committed row was found"
+            )
+        )
+    logger.info(
+        f"billing: concurrent adjustment on idempotency key {idempotency_key!r} "
+        f"lost the race; returning {winner.id}"
+    )
+    return winner

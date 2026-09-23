@@ -740,3 +740,234 @@ class Redemption(SQLModel, BaseModelMixin, table=True):
     )
 
     model_config = ConfigDict(protected_namespaces=())
+
+
+# ---------------------------------------------------------------------------
+# Adjustment — operator-initiated wallet corrections (WP4.5)
+# ---------------------------------------------------------------------------
+
+
+class Adjustment(SQLModel, BaseModelMixin, table=True):
+    """A manual correction to one wallet, keyed by an operator-supplied token.
+
+    Redemptions cover money a tenant bought; this covers money an operator moved
+    — a billing error reversed, a goodwill credit, a settlement that did not go
+    through a code. Both write a wallet movement and a ledger row, and neither
+    may be replayable by accident.
+
+    The idempotency key is the caller's, not ours: a ticket number, a payment
+    reference, whatever the operator's process guarantees is unique per
+    correction. It is deliberately *not* the redemption ``code`` column reused
+    under another name. A code identifies an instrument that existed before the
+    money moved and can only be spent once; an adjustment has no instrument, so
+    the only thing between a retried HTTP request and a double credit is a key
+    the caller chose. Sharing one column between the two would let a ticket
+    number collide with a code, and that collision fails closed — a legitimate
+    correction rejected as a duplicate of an unrelated redemption.
+
+    ``amount`` is signed: positive credits the wallet, negative debits it. One
+    column rather than a direction plus a magnitude, because the sign is what
+    both the ledger row and the wallet movement need, and a representation that
+    has to be recombined is one that can be recombined wrongly.
+    """
+
+    __tablename__: ClassVar[str] = "billing_adjustment"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_adjustment_idempotency"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    # Both are real columns: ``principal_id`` is who the money belongs to (the
+    # subject every other billing query is scoped by), ``wallet_id`` is the row
+    # that moved. Either alone would leave a question answered only by a join
+    # against history.
+    principal_id: int = Field(sa_column=Column(Integer, nullable=False, index=True))
+    principal_name: Optional[str] = Field(default=None, max_length=255)
+    wallet_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    amount: Decimal = Field(sa_column=_money_column(nullable=False))
+    currency: str = Field(default="CNY", sa_column=Column(String(8), nullable=False))
+    # Why. An unexplained correction is indistinguishable from a mistake six
+    # months later, and this is the column an auditor reads.
+    reason: str = Field(sa_column=Column(String(512), nullable=False))
+    operator_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    operator_name: Optional[str] = Field(default=None, max_length=255)
+    # 191 rather than 255: the longest prefix MySQL can put a unique index on
+    # under utf8mb4, so the constraint survives a deployment on that database.
+    # No ``index=True`` here — the unique constraint below already creates one,
+    # and a second index on the same column would only cost writes.
+    idempotency_key: str = Field(sa_column=Column(String(191), nullable=False))
+    # The ledger row this adjustment produced. A correction that cannot be tied
+    # to its entry cannot be reconciled against the wallet movement, which is the
+    # property that makes a manual money move auditable at all.
+    ledger_entry_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class AdjustmentPublic(SQLModel):
+    """Read-only: an adjustment records something that already happened.
+
+    No update surface and no delete. Correcting a correction is another
+    adjustment, so the trail stays complete — an edited or removed row would mean
+    the ledger and the wallet no longer explain each other.
+    """
+
+    id: int
+    principal_id: int
+    principal_name: Optional[str] = None
+    wallet_id: Optional[int] = None
+    amount: Decimal
+    currency: str
+    reason: str
+    operator_id: Optional[int] = None
+    operator_name: Optional[str] = None
+    idempotency_key: str
+    ledger_entry_id: Optional[int] = None
+    created_at: datetime
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class AdjustmentListParams(ListParams):
+    sortable_fields: ClassVar[List[str]] = [
+        "id",
+        "principal_id",
+        "amount",
+        "operator_id",
+        "created_at",
+    ]
+
+
+AdjustmentsPublic = PaginatedList[AdjustmentPublic]
+
+
+class AdjustmentCreate(SQLModel):
+    """The request body for a manual correction.
+
+    ``operator_id`` / ``operator_name`` are absent on purpose: they are taken
+    from the authenticated caller, because an operator who could name somebody
+    else as the author of a money movement could author one anonymously. Same
+    reasoning for ``principal_name``, which is snapshotted server-side.
+    """
+
+    principal_id: int
+    # Signed: positive credits the wallet, negative debits it. A separate
+    # ``direction`` field would be one more thing to get inconsistent.
+    amount: Decimal
+    reason: str = Field(min_length=1, max_length=512)
+    # The caller's key — a ticket number, a payment reference. Required, because
+    # a correction with no idempotency key is one that a retried request can
+    # apply twice, and the failure is silent.
+    idempotency_key: str = Field(min_length=1, max_length=191)
+    currency: str = Field(default="CNY", max_length=8)
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class WalletListParams(ListParams):
+    sortable_fields: ClassVar[List[str]] = [
+        "id",
+        "principal_id",
+        "balance",
+        "frozen",
+        "suspended",
+        "suspended_at",
+        "created_at",
+        "updated_at",
+    ]
+
+
+class WalletPublic(SQLModel):
+    """A wallet as its owner or an operator needs to see it.
+
+    ``available`` is derived rather than stored: balance minus frozen is what a
+    caller can actually spend, and a client that computes it themselves will
+    eventually compute it differently.
+    """
+
+    id: int
+    principal_id: int
+    principal_name: Optional[str] = None
+    currency: str
+    balance: Decimal
+    frozen: Decimal
+    available: Decimal = Decimal(0)
+    suspended: bool = False
+    suspended_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class WalletState(WalletPublic):
+    """A wallet plus what it owes — the numbers behind a 402.
+
+    The outstanding split matters operationally: realtime arrears are collected
+    by the next settlement sweep, invoice arrears by the next invoicing pass, so
+    "how much do I need to top up" and "when will service come back" are two
+    questions with different answers.
+    """
+
+    outstanding_realtime: Decimal = Decimal(0)
+    outstanding_invoices: Decimal = Decimal(0)
+    outstanding_total: Decimal = Decimal(0)
+
+
+class LedgerEntryPublic(SQLModel):
+    """One ledger row, as an auditor or a disputing tenant reads it.
+
+    Carries the source identity (``source_table`` / ``source_id`` / ``request_id``)
+    because that is what makes a charge traceable to the usage row it came from,
+    and the price snapshot (``unit_price`` / ``price_book_id`` /
+    ``price_book_version``) because a bill has to stay reproducible after the
+    price that produced it has been superseded.
+    """
+
+    id: int
+    source_table: str
+    source_id: int
+    principal_id: Optional[int] = None
+    principal_name: Optional[str] = None
+    user_id: Optional[int] = None
+    user_name: Optional[str] = None
+    api_key_id: Optional[int] = None
+    api_key_name: Optional[str] = None
+    model_name: Optional[str] = None
+    cluster_id: Optional[int] = None
+    resource_id: Optional[int] = None
+    resource_name: Optional[str] = None
+    request_id: Optional[str] = None
+    sku: str
+    quantity: Decimal
+    unit: str
+    unit_price: Decimal
+    price_book_id: Optional[int] = None
+    price_book_version: Optional[int] = None
+    amount: Decimal
+    currency: str
+    direction: str
+    settle_mode: str
+    status: str
+    billing_session_id: Optional[int] = None
+    invoice_id: Optional[int] = None
+    settled_at: Optional[datetime] = None
+    occurred_at: datetime
+    created_at: datetime
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class LedgerListParams(ListParams):
+    sortable_fields: ClassVar[List[str]] = [
+        "id",
+        "occurred_at",
+        "amount",
+        "quantity",
+        "principal_id",
+        "sku",
+        "created_at",
+    ]
+
+
+LedgerEntriesPublic = PaginatedList[LedgerEntryPublic]
