@@ -135,8 +135,9 @@ async def client(app_and_engine):
         yield ac
 
 
-def _wallet(principal_id=ORG, balance="100.00", frozen="0", suspended=False,
-            name="acme"):
+def _wallet(
+    principal_id=ORG, balance="100.00", frozen="0", suspended=False, name="acme"
+):
     return Wallet(
         id=principal_id - 990000,
         principal_id=principal_id,
@@ -151,10 +152,19 @@ def _wallet(principal_id=ORG, balance="100.00", frozen="0", suspended=False,
     )
 
 
-def _entry(id_, *, sku=SKU_TOKEN_PROMPT, unit=UNIT_TOKENS, amount="1.00",
-           principal_id=ORG, settle_mode=SettleMode.REALTIME,
-           status=LedgerStatus.PENDING, request_id=None,
-           occurred_at=NOW - timedelta(days=1), direction=LedgerDirection.DEBIT):
+def _entry(
+    id_,
+    *,
+    sku=SKU_TOKEN_PROMPT,
+    unit=UNIT_TOKENS,
+    amount="1.00",
+    principal_id=ORG,
+    settle_mode=SettleMode.REALTIME,
+    status=LedgerStatus.PENDING,
+    request_id=None,
+    occurred_at=NOW - timedelta(days=1),
+    direction=LedgerDirection.DEBIT,
+):
     return LedgerEntry(
         id=id_,
         source_table="model_usage_details",
@@ -216,12 +226,23 @@ async def test_list_wallets_carries_available_and_what_is_owed(client, app_and_e
         engine,
         _wallet(balance="100.00", frozen="20.00"),
         _entry(1, amount="5.00", settle_mode=SettleMode.REALTIME),
-        _entry(2, amount="7.00", settle_mode=SettleMode.DEFERRED,
-               sku=SKU_910B, unit=UNIT_GPU_HOURS),
+        _entry(
+            2,
+            amount="7.00",
+            settle_mode=SettleMode.DEFERRED,
+            sku=SKU_910B,
+            unit=UNIT_GPU_HOURS,
+        ),
         Invoice(
-            id=1, principal_id=ORG, period_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
-            period_end=datetime(2026, 9, 1, tzinfo=timezone.utc), amount=Decimal("30"),
-            currency="CNY", status="issued", issued_at=NOW, created_at=NOW,
+            id=1,
+            principal_id=ORG,
+            period_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            period_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            amount=Decimal("30"),
+            currency="CNY",
+            status="issued",
+            issued_at=NOW,
+            created_at=NOW,
             updated_at=NOW,
         ),
     )
@@ -243,9 +264,7 @@ async def test_list_wallets_carries_available_and_what_is_owed(client, app_and_e
 
 
 @pytest.mark.asyncio
-async def test_list_wallets_filters_by_principal_and_suspension(
-    client, app_and_engine
-):
+async def test_list_wallets_filters_by_principal_and_suspension(client, app_and_engine):
     _, engine = app_and_engine
     await _seed(
         engine,
@@ -361,10 +380,18 @@ async def test_redeeming_resumes_a_suspended_wallet(client, app_and_engine):
         _wallet(ORG, balance="0", suspended=True),
         _redemption(amount="500"),
         ApiKey(
-            id=1, name="k", access_key="ak-1", hashed_secret_key="argon2-1",
-            scope=[], user_id=ORG, owner_principal_id=ORG, is_custom=False,
-            suspended=True, suspension_reason="billing:wallet balance exhausted",
-            created_at=NOW, updated_at=NOW,
+            id=1,
+            name="k",
+            access_key="ak-1",
+            hashed_secret_key="argon2-1",
+            scope=[],
+            user_id=ORG,
+            owner_principal_id=ORG,
+            is_custom=False,
+            suspended=True,
+            suspension_reason="billing:wallet balance exhausted",
+            created_at=NOW,
+            updated_at=NOW,
         ),
     )
 
@@ -390,11 +417,16 @@ async def test_the_ledger_answers_the_questions_a_reconciliation_asks(
     await _seed(
         engine,
         _entry(1, request_id="req-aaa", amount="1.00"),
-        _entry(2, request_id="req-bbb", amount="2.00",
-               settle_mode=SettleMode.DEFERRED, sku=SKU_910B, unit=UNIT_GPU_HOURS),
+        _entry(
+            2,
+            request_id="req-bbb",
+            amount="2.00",
+            settle_mode=SettleMode.DEFERRED,
+            sku=SKU_910B,
+            unit=UNIT_GPU_HOURS,
+        ),
         _entry(3, request_id="req-ccc", amount="3.00", principal_id=OTHER_ORG),
-        _entry(4, request_id="req-ddd", amount="4.00",
-               status=LedgerStatus.SETTLED),
+        _entry(4, request_id="req-ddd", amount="4.00", status=LedgerStatus.SETTLED),
     )
 
     everything = await client.get("/billing/ledger")
@@ -560,14 +592,18 @@ async def test_a_key_reused_for_a_different_amount_is_refused(client, app_and_en
     first = await client.post(
         "/billing/adjustments",
         json={
-            "principal_id": ORG, "amount": "50.00", "reason": "x",
+            "principal_id": ORG,
+            "amount": "50.00",
+            "reason": "x",
             "idempotency_key": "TICKET-4",
         },
     )
     second = await client.post(
         "/billing/adjustments",
         json={
-            "principal_id": ORG, "amount": "5000.00", "reason": "x",
+            "principal_id": ORG,
+            "amount": "5000.00",
+            "reason": "x",
             "idempotency_key": "TICKET-4",
         },
     )
@@ -586,7 +622,9 @@ async def test_a_debit_beyond_the_balance_is_refused(client, app_and_engine):
     response = await client.post(
         "/billing/adjustments",
         json={
-            "principal_id": ORG, "amount": "-500.00", "reason": "clawback",
+            "principal_id": ORG,
+            "amount": "-500.00",
+            "reason": "clawback",
             "idempotency_key": "TICKET-5",
         },
     )
@@ -604,7 +642,9 @@ async def test_an_adjustment_needs_a_key_and_a_reason(client):
     blank_reason = await client.post(
         "/billing/adjustments",
         json={
-            "principal_id": ORG, "amount": "10.00", "reason": "",
+            "principal_id": ORG,
+            "amount": "10.00",
+            "reason": "",
             "idempotency_key": "TICKET-6",
         },
     )
@@ -655,7 +695,9 @@ async def test_an_adjustment_writes_a_ledger_row_the_audit_can_follow(
     created = await client.post(
         "/billing/adjustments",
         json={
-            "principal_id": ORG, "amount": "25.00", "reason": "ticket 4711",
+            "principal_id": ORG,
+            "amount": "25.00",
+            "reason": "ticket 4711",
             "idempotency_key": "TICKET-9",
         },
     )
@@ -685,8 +727,8 @@ async def test_a_top_up_lands_in_the_ledger_as_a_credit(client, app_and_engine):
 
     await client.post("/billing/redeem", json={"code": "CODE-100"})
 
-    rows = (await client.get("/billing/ledger", params={"sku": SKU_WALLET_TOPUP})).json()[
-        "items"
-    ]
+    rows = (
+        await client.get("/billing/ledger", params={"sku": SKU_WALLET_TOPUP})
+    ).json()["items"]
     assert len(rows) == 1
     assert rows[0]["direction"] == LedgerDirection.CREDIT.value

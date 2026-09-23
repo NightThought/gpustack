@@ -125,7 +125,7 @@ def test_resolution_is_logged_with_the_exposure_it_represents(registry, caplog):
 
 
 def test_an_escalation_is_worth_a_second_line(registry, caplog):
-    """"Still unpaid" is noise; "unpaid for a week and now critical" is not."""
+    """ "Still unpaid" is noise; "unpaid for a week and now critical" is not."""
     with caplog.at_level("WARNING", logger="gpustack.server.billing_alerts"):
         registry.raise_alert(
             BillingAlertKind.UNPAID_INVOICE,
@@ -155,16 +155,22 @@ def test_an_escalation_is_worth_a_second_line(registry, caplog):
 
 def test_different_problems_do_not_dedup_against_each_other(registry):
     registry.raise_alert(
-        BillingAlertKind.UNPRICED_GAP, SKU_910B,
-        severity=AlertSeverity.WARNING, summary="a",
+        BillingAlertKind.UNPRICED_GAP,
+        SKU_910B,
+        severity=AlertSeverity.WARNING,
+        summary="a",
     )
     registry.raise_alert(
-        BillingAlertKind.UNPRICED_GAP, SKU_TOKEN_PROMPT,
-        severity=AlertSeverity.WARNING, summary="b",
+        BillingAlertKind.UNPRICED_GAP,
+        SKU_TOKEN_PROMPT,
+        severity=AlertSeverity.WARNING,
+        summary="b",
     )
     registry.raise_alert(
-        BillingAlertKind.WALLET_SUSPENDED, str(ORG),
-        severity=AlertSeverity.WARNING, summary="c",
+        BillingAlertKind.WALLET_SUSPENDED,
+        str(ORG),
+        severity=AlertSeverity.WARNING,
+        summary="c",
     )
     assert len(registry.active()) == 3
 
@@ -174,8 +180,10 @@ def test_resolve_absent_clears_only_what_is_no_longer_true(registry):
     asserted last time that is not in that set is resolved."""
     for key in ("a", "b", "c"):
         registry.raise_alert(
-            BillingAlertKind.UNPRICED_GAP, key,
-            severity=AlertSeverity.WARNING, summary=key,
+            BillingAlertKind.UNPRICED_GAP,
+            key,
+            severity=AlertSeverity.WARNING,
+            summary=key,
         )
 
     cleared = registry.resolve_absent(BillingAlertKind.UNPRICED_GAP, ["b"])
@@ -186,12 +194,16 @@ def test_resolve_absent_clears_only_what_is_no_longer_true(registry):
 
 def test_resolve_absent_leaves_other_kinds_alone(registry):
     registry.raise_alert(
-        BillingAlertKind.UNPRICED_GAP, "a",
-        severity=AlertSeverity.WARNING, summary="a",
+        BillingAlertKind.UNPRICED_GAP,
+        "a",
+        severity=AlertSeverity.WARNING,
+        summary="a",
     )
     registry.raise_alert(
-        BillingAlertKind.WALLET_SUSPENDED, str(ORG),
-        severity=AlertSeverity.WARNING, summary="s",
+        BillingAlertKind.WALLET_SUSPENDED,
+        str(ORG),
+        severity=AlertSeverity.WARNING,
+        summary="s",
     )
 
     registry.resolve_absent(BillingAlertKind.UNPRICED_GAP, [])
@@ -203,14 +215,18 @@ def test_resolve_absent_leaves_other_kinds_alone(registry):
 
 def test_a_problem_raised_again_after_resolving_is_a_new_one(registry):
     registry.raise_alert(
-        BillingAlertKind.WALLET_SUSPENDED, str(ORG),
-        severity=AlertSeverity.WARNING, summary="first",
+        BillingAlertKind.WALLET_SUSPENDED,
+        str(ORG),
+        severity=AlertSeverity.WARNING,
+        summary="first",
     )
     registry.resolve(BillingAlertKind.WALLET_SUSPENDED, str(ORG))
 
     emitted = registry.raise_alert(
-        BillingAlertKind.WALLET_SUSPENDED, str(ORG),
-        severity=AlertSeverity.WARNING, summary="second",
+        BillingAlertKind.WALLET_SUSPENDED,
+        str(ORG),
+        severity=AlertSeverity.WARNING,
+        summary="second",
     )
 
     assert emitted is True
@@ -221,13 +237,17 @@ def test_raised_total_never_goes_down(registry):
     """A gauge of active alerts falls when a problem is fixed; if that number is
     used as a counter, Prometheus reads the fall as a reset."""
     registry.raise_alert(
-        BillingAlertKind.UNPRICED_GAP, "a",
-        severity=AlertSeverity.WARNING, summary="a",
+        BillingAlertKind.UNPRICED_GAP,
+        "a",
+        severity=AlertSeverity.WARNING,
+        summary="a",
     )
     registry.resolve(BillingAlertKind.UNPRICED_GAP, "a")
     registry.raise_alert(
-        BillingAlertKind.UNPRICED_GAP, "a",
-        severity=AlertSeverity.WARNING, summary="a",
+        BillingAlertKind.UNPRICED_GAP,
+        "a",
+        severity=AlertSeverity.WARNING,
+        summary="a",
     )
 
     assert registry.raised_total()[BillingAlertKind.UNPRICED_GAP.value] == 2
@@ -240,8 +260,10 @@ def test_the_active_alert_cap_stops_unbounded_growth(registry, caplog):
         with caplog.at_level("ERROR", logger="gpustack.server.billing_alerts"):
             for key in ("a", "b", "c", "d"):
                 registry.raise_alert(
-                    BillingAlertKind.UNPAID_INVOICE, key,
-                    severity=AlertSeverity.WARNING, summary=key,
+                    BillingAlertKind.UNPAID_INVOICE,
+                    key,
+                    severity=AlertSeverity.WARNING,
+                    summary=key,
                 )
 
     assert len(registry.active()) == 2
@@ -326,8 +348,15 @@ def _void_entry(id_, sku=SKU_910B, occurred_at=NOW - timedelta(days=2)):
     )
 
 
-def _charge(id_, *, amount="1.00", settle_mode=SettleMode.REALTIME,
-            status=LedgerStatus.PENDING, sku=SKU_TOKEN_PROMPT, unit=UNIT_TOKENS):
+def _charge(
+    id_,
+    *,
+    amount="1.00",
+    settle_mode=SettleMode.REALTIME,
+    status=LedgerStatus.PENDING,
+    sku=SKU_TOKEN_PROMPT,
+    unit=UNIT_TOKENS,
+):
     return LedgerEntry(
         id=id_,
         source_table="model_usage_details",
@@ -348,8 +377,13 @@ def _charge(id_, *, amount="1.00", settle_mode=SettleMode.REALTIME,
     )
 
 
-def _invoice(id_, *, status=InvoiceStatus.ISSUED, issued_at=NOW - timedelta(days=5),
-             amount="120.00"):
+def _invoice(
+    id_,
+    *,
+    status=InvoiceStatus.ISSUED,
+    issued_at=NOW - timedelta(days=5),
+    amount="120.00",
+):
     return Invoice(
         id=id_,
         principal_id=ORG,
@@ -405,9 +439,7 @@ async def test_unpriced_usage_raises_one_alert_per_sku(session_factory):
 
     assert report.unpriced_skus == 2
     assert report.unpriced_entries == 3
-    kinds = {
-        (alert.kind, alert.key): alert for alert in billing_alerts.active()
-    }
+    kinds = {(alert.kind, alert.key): alert for alert in billing_alerts.active()}
     gap = kinds[(BillingAlertKind.UNPRICED_GAP, SKU_910B)]
     assert "2 usage record(s)" in gap.summary
     assert "not being billed" in gap.summary
@@ -514,7 +546,7 @@ async def test_a_paid_invoice_resolves(session_factory):
 async def test_a_suspension_alert_carries_what_it_would_take_to_resume(
     session_factory,
 ):
-    """"Balance 0.05" does not answer whether a top-up of 1 fixes it."""
+    """ "Balance 0.05" does not answer whether a top-up of 1 fixes it."""
     await _seed(
         session_factory,
         _wallet(balance="0.05"),
@@ -578,8 +610,13 @@ async def test_the_backlog_is_measured_and_published(session_factory):
     await _seed(
         session_factory,
         _charge(1, amount="2.50", settle_mode=SettleMode.REALTIME),
-        _charge(2, amount="7.25", settle_mode=SettleMode.DEFERRED,
-                sku=SKU_910B, unit=UNIT_GPU_HOURS),
+        _charge(
+            2,
+            amount="7.25",
+            settle_mode=SettleMode.DEFERRED,
+            sku=SKU_910B,
+            unit=UNIT_GPU_HOURS,
+        ),
         _charge(3, amount="99.00", status=LedgerStatus.SETTLED),
     )
 

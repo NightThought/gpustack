@@ -80,9 +80,7 @@ def _money_column(**kwargs) -> Column:
 
 
 # SKUs rated from ``model_usage_details`` (per request, settled immediately).
-_TOKEN_SKUS = frozenset(
-    {SKU_TOKEN_PROMPT, SKU_TOKEN_COMPLETION, SKU_TOKEN_CACHED}
-)
+_TOKEN_SKUS = frozenset({SKU_TOKEN_PROMPT, SKU_TOKEN_COMPLETION, SKU_TOKEN_CACHED})
 
 
 def is_token_sku(sku: str) -> bool:
@@ -731,9 +729,7 @@ class Redemption(SQLModel, BaseModelMixin, table=True):
     expires_at: Optional[datetime] = Field(
         default=None, sa_column=Column(UTCDateTime(), nullable=True)
     )
-    used_by_principal_id: Optional[int] = Field(
-        default=None, sa_column=Column(Integer)
-    )
+    used_by_principal_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
     used_by_user_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
     used_at: Optional[datetime] = Field(
         default=None, sa_column=Column(UTCDateTime(), nullable=True)

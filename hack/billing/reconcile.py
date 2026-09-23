@@ -171,9 +171,7 @@ async def ledger_quantity_sums(
             .group_by(LedgerEntry.source_id, LedgerEntry.sku)
         )
     ).all()
-    return {
-        (int(row[0]), str(row[1])): Decimal(row[2] or 0) for row in rows
-    }
+    return {(int(row[0]), str(row[1])): Decimal(row[2] or 0) for row in rows}
 
 
 async def ledger_source_states(
@@ -333,10 +331,7 @@ async def check_row_consistency(
 ) -> Dict[str, int]:
     stats = {"entries": 0, "priced": 0, "bad_amount": 0, "bad_unit": 0}
 
-    prices = {
-        row.id: row
-        for row in (await session.exec(select(PriceBookEntry))).all()
-    }
+    prices = {row.id: row for row in (await session.exec(select(PriceBookEntry))).all()}
     entries = (
         await session.exec(
             select(LedgerEntry).where(
@@ -466,9 +461,9 @@ async def snapshot_money(session: AsyncSession) -> Dict[str, object]:
     """Balances and settled sums, for the windowed conservation check."""
     wallets = {
         int(row.principal_id): Decimal(row.balance or 0)
-        for row in (await session.exec(select(Wallet).where(
-            Wallet.deleted_at.is_(None)
-        ))).all()
+        for row in (
+            await session.exec(select(Wallet).where(Wallet.deleted_at.is_(None)))
+        ).all()
     }
     return {"balances": wallets, "sums": await settled_sums(session)}
 
@@ -492,13 +487,15 @@ def check_conservation(
     after_sums: Dict[int, Tuple[Decimal, Decimal]] = after["sums"]  # type: ignore[assignment]
 
     for principal_id in set(before_balances) | set(after_balances):
-        delta_balance = after_balances.get(principal_id, Decimal(0)) - before_balances.get(
+        delta_balance = after_balances.get(
             principal_id, Decimal(0)
-        )
+        ) - before_balances.get(principal_id, Decimal(0))
         credit_before, debit_before = before_sums.get(
             principal_id, (Decimal(0), Decimal(0))
         )
-        credit_after, debit_after = after_sums.get(principal_id, (Decimal(0), Decimal(0)))
+        credit_after, debit_after = after_sums.get(
+            principal_id, (Decimal(0), Decimal(0))
+        )
         delta_ledger = (credit_after - credit_before) - (debit_after - debit_before)
         if delta_balance == 0 and delta_ledger == 0:
             continue
@@ -640,7 +637,7 @@ async def run(database_url: str) -> int:
     ]
     if hard_failures:
         print(f"对账未通过（{len(hard_failures)} 项）：")
-        for problem in hard_failures[:MAX_REPORTED * 4]:
+        for problem in hard_failures[: MAX_REPORTED * 4]:
             print(f"  - {problem}")
     else:
         print(

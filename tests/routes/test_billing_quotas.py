@@ -162,8 +162,8 @@ async def test_create_a_key_scoped_daily_token_ceiling(client, app_and_engine):
 async def test_create_rejects_a_subject_that_disagrees_with_its_scope(client):
     """An api_key-scoped row carrying only a user_id would match nobody."""
     response = await client.post(
-        PREFIX, json=_payload(scope=QuotaScope.API_KEY.value, api_key_id=None,
-                              user_id=USER)
+        PREFIX,
+        json=_payload(scope=QuotaScope.API_KEY.value, api_key_id=None, user_id=USER),
     )
     assert response.status_code == 422, response.text
 
@@ -200,8 +200,8 @@ async def test_create_rejects_a_duplicate_all_models_ceiling(client, app_and_eng
 async def test_create_allows_the_same_subject_under_another_limit_type(client):
     assert (await client.post(PREFIX, json=_payload())).status_code == 200
     other = await client.post(
-        PREFIX, json=_payload(limit_type=QuotaLimitType.DAILY_AMOUNT.value,
-                              limit_value="50")
+        PREFIX,
+        json=_payload(limit_type=QuotaLimitType.DAILY_AMOUNT.value, limit_value="50"),
     )
     assert other.status_code == 200, other.text
 
@@ -267,9 +267,7 @@ async def test_get_one_and_404(client):
 
 
 @pytest.mark.asyncio
-async def test_update_changes_the_ceiling_and_can_disable_it(
-    client, app_and_engine
-):
+async def test_update_changes_the_ceiling_and_can_disable_it(client, app_and_engine):
     _, engine = app_and_engine
     created = (await client.post(PREFIX, json=_payload())).json()
 
@@ -358,9 +356,7 @@ async def test_check_reports_every_ceiling_and_admits_under_them(client):
     await client.post(PREFIX, json=_payload(limit_value="1000"))
     await client.post(
         PREFIX,
-        json=_payload(
-            limit_type=QuotaLimitType.DAILY_AMOUNT.value, limit_value="50"
-        ),
+        json=_payload(limit_type=QuotaLimitType.DAILY_AMOUNT.value, limit_value="50"),
     )
 
     response = await client.post(
@@ -398,15 +394,13 @@ async def test_check_names_the_ceiling_that_refuses(client, app_and_engine):
 @pytest.mark.asyncio
 async def test_check_sees_a_ceiling_created_moments_earlier(client):
     """Writes invalidate the cache; a stale one would hide the new limit."""
-    assert (
-        await client.post(PREFIX + "/check", json={"api_key_id": KEY})
-    ).json()["evaluated"] == []
+    assert (await client.post(PREFIX + "/check", json={"api_key_id": KEY})).json()[
+        "evaluated"
+    ] == []
 
     await client.post(PREFIX, json=_payload(limit_value="1000"))
 
-    body = (
-        await client.post(PREFIX + "/check", json={"api_key_id": KEY})
-    ).json()
+    body = (await client.post(PREFIX + "/check", json={"api_key_id": KEY})).json()
     assert len(body["evaluated"]) == 1
 
 
@@ -442,12 +436,12 @@ async def test_quota_cache_is_dropped_after_a_delete(client, app_and_engine):
     _, engine = app_and_engine
     created = (await client.post(PREFIX, json=_payload(limit_value="1"))).json()
     await _seed_usage(engine, quantity="400")
-    assert (
-        await client.post(PREFIX + "/check", json={"api_key_id": KEY})
-    ).json()["admitted"] is False
+    assert (await client.post(PREFIX + "/check", json={"api_key_id": KEY})).json()[
+        "admitted"
+    ] is False
 
     await client.delete(f"{PREFIX}/{created['id']}")
 
-    assert (
-        await client.post(PREFIX + "/check", json={"api_key_id": KEY})
-    ).json()["admitted"] is True
+    assert (await client.post(PREFIX + "/check", json={"api_key_id": KEY})).json()[
+        "admitted"
+    ] is True

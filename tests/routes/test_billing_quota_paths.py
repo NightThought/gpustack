@@ -150,8 +150,11 @@ def _record_gate(monkeypatch, module):
 @pytest.mark.asyncio
 async def test_the_gateway_path_asks_the_gate_about_the_credential(monkeypatch):
     api_key = _asserted_key()
-    _stub_gateway_path(monkeypatch, api_key, SimpleNamespace(
-        id=USER_ID, is_active=True, kind=PrincipalType.USER))
+    _stub_gateway_path(
+        monkeypatch,
+        api_key,
+        SimpleNamespace(id=USER_ID, is_active=True, kind=PrincipalType.USER),
+    )
     calls = _record_gate(monkeypatch, token_route)
 
     response = await server_auth(_gateway_request(), session=object())
@@ -172,8 +175,11 @@ async def test_the_gateway_path_asks_the_gate_about_the_credential(monkeypatch):
 @pytest.mark.asyncio
 async def test_a_refusal_on_the_gateway_path_reaches_the_client(monkeypatch):
     api_key = _asserted_key()
-    _stub_gateway_path(monkeypatch, api_key, SimpleNamespace(
-        id=USER_ID, is_active=True, kind=PrincipalType.USER))
+    _stub_gateway_path(
+        monkeypatch,
+        api_key,
+        SimpleNamespace(id=USER_ID, is_active=True, kind=PrincipalType.USER),
+    )
 
     async def _refuse(session, **kwargs):
         raise TooManyRequestsException(message="daily_tokens quota exhausted")
@@ -195,8 +201,11 @@ async def test_suspension_is_answered_before_the_quota_is(monkeypatch):
     api_key = _asserted_key()
     api_key.suspended = True
     api_key.suspension_reason = "billing:wallet balance exhausted"
-    _stub_gateway_path(monkeypatch, api_key, SimpleNamespace(
-        id=USER_ID, is_active=True, kind=PrincipalType.USER))
+    _stub_gateway_path(
+        monkeypatch,
+        api_key,
+        SimpleNamespace(id=USER_ID, is_active=True, kind=PrincipalType.USER),
+    )
     calls = _record_gate(monkeypatch, token_route)
 
     with pytest.raises(PaymentRequiredException) as exc_info:

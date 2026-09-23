@@ -228,8 +228,7 @@ def test_a_null_model_matches_every_model_and_a_named_one_only_itself():
         _spec(3, QuotaScope.API_KEY, api_key_id=KEY, model_name="Qwen3-30B-A3B"),
     ]
     assert sorted(
-        s.id
-        for s in specs_for_caller(specs, api_key_id=KEY, model_name=MODEL)
+        s.id for s in specs_for_caller(specs, api_key_id=KEY, model_name=MODEL)
     ) == [1, 2]
 
 
@@ -238,9 +237,17 @@ def test_a_caller_with_no_ids_matches_nothing():
     assert specs_for_caller(specs, model_name=MODEL) == []
 
 
-def _spec(id_, scope, *, api_key_id=None, user_id=None, principal_id=None,
-          model_name=None, limit_type=QuotaLimitType.DAILY_TOKENS,
-          limit_value="1000"):
+def _spec(
+    id_,
+    scope,
+    *,
+    api_key_id=None,
+    user_id=None,
+    principal_id=None,
+    model_name=None,
+    limit_type=QuotaLimitType.DAILY_TOKENS,
+    limit_value="1000",
+):
     from gpustack.server.billing_quota import QuotaSpec
 
     return QuotaSpec(
@@ -271,7 +278,10 @@ async def test_a_caller_with_no_quotas_costs_no_query():
     invalidate_quota_cache()
     with patch.object(billing_quota, "enabled_quota_specs", _async_return([])):
         await check_quota(
-            _NoQueries(), api_key_id=KEY, user_id=USER, principal_id=ORG,
+            _NoQueries(),
+            api_key_id=KEY,
+            user_id=USER,
+            principal_id=ORG,
             model_name=MODEL,
         )
 
@@ -358,9 +368,7 @@ async def test_a_stricter_key_ceiling_bites_before_a_looser_org_one(
     async with session_factory() as s:
         await _seed(
             s,
-            _quota(
-                id_=1, limit_value="1000000", window_start=DAY_START, used="10"
-            ),
+            _quota(id_=1, limit_value="1000000", window_start=DAY_START, used="10"),
             _quota(
                 id_=2,
                 scope=QuotaScope.ORGANIZATION,
@@ -385,13 +393,13 @@ async def test_an_unreadable_counter_is_allowed_through(session_factory, caplog)
     problem into an outage; the exposure is bounded by the window."""
     invalidate_quota_cache()
     with patch.object(
-        billing_quota, "enabled_quota_specs", _async_return([_spec(1, QuotaScope.API_KEY, api_key_id=KEY)])
+        billing_quota,
+        "enabled_quota_specs",
+        _async_return([_spec(1, QuotaScope.API_KEY, api_key_id=KEY)]),
     ):
         with patch.object(billing_quota, "window_used", _raising):
             with caplog.at_level("WARNING", logger="gpustack.server.billing_quota"):
-                await check_quota(
-                    session_factory, api_key_id=KEY, model_name=MODEL
-                )
+                await check_quota(session_factory, api_key_id=KEY, model_name=MODEL)
     assert "could not evaluate quota 1" in caplog.text
 
 
@@ -433,8 +441,9 @@ async def test_a_rollover_can_still_refuse(session_factory):
     async with session_factory() as s:
         await _seed(
             s,
-            _quota(limit_value="100", window_start=DAY_START - timedelta(days=1),
-                   used="0"),
+            _quota(
+                limit_value="100", window_start=DAY_START - timedelta(days=1), used="0"
+            ),
             _ledger(1, quantity="250", occurred_at=NOW),
         )
     invalidate_quota_cache()
@@ -553,11 +562,20 @@ async def test_apply_usage_advances_every_ceiling_the_entry_binds(
         await _seed(
             s,
             _quota(id_=1, limit_value="1000", window_start=DAY_START),
-            _quota(id_=2, scope=QuotaScope.USER, limit_type=QuotaLimitType.DAILY_AMOUNT,
-                   limit_value="100", window_start=DAY_START),
-            _quota(id_=3, scope=QuotaScope.ORGANIZATION,
-                   limit_type=QuotaLimitType.MONTHLY_AMOUNT, limit_value="500",
-                   window_start=MONTH_START),
+            _quota(
+                id_=2,
+                scope=QuotaScope.USER,
+                limit_type=QuotaLimitType.DAILY_AMOUNT,
+                limit_value="100",
+                window_start=DAY_START,
+            ),
+            _quota(
+                id_=3,
+                scope=QuotaScope.ORGANIZATION,
+                limit_type=QuotaLimitType.MONTHLY_AMOUNT,
+                limit_value="500",
+                window_start=MONTH_START,
+            ),
         )
     invalidate_quota_cache()
 
@@ -740,8 +758,15 @@ async def test_updating_a_row_is_not_a_duplicate_of_itself(session_factory):
 
 def _principal(id_, kind=PrincipalType.ORG, name="acme"):
     return Principal(
-        id=id_, kind=kind, name=name, display_name=name, source="local",
-        is_admin=False, is_active=True, created_at=NOW, updated_at=NOW,
+        id=id_,
+        kind=kind,
+        name=name,
+        display_name=name,
+        source="local",
+        is_admin=False,
+        is_active=True,
+        created_at=NOW,
+        updated_at=NOW,
     )
 
 
@@ -766,8 +791,9 @@ def _api_key(id_=KEY, access_key="ak-1", user_id=USER, owner_principal_id=ORG):
 @pytest.mark.asyncio
 async def test_an_unlimited_key_stays_verifiable_locally(session_factory):
     async with session_factory() as s:
-        await _seed(s, _principal(ORG), _principal(USER, PrincipalType.USER, "u"),
-                    _api_key())
+        await _seed(
+            s, _principal(ORG), _principal(USER, PrincipalType.USER, "u"), _api_key()
+        )
     keys, _ = await _tables(session_factory)
     assert keys["ak-1"].get("unrestricted") is True
 
@@ -777,8 +803,13 @@ async def test_a_ceiling_on_the_key_withholds_the_local_shortcut(session_factory
     """Without this the plugin answers locally and the ceiling is never asked
     about — enforcement would look configured and do nothing."""
     async with session_factory() as s:
-        await _seed(s, _principal(ORG), _principal(USER, PrincipalType.USER, "u"),
-                    _api_key(), _quota(limit_value="1000"))
+        await _seed(
+            s,
+            _principal(ORG),
+            _principal(USER, PrincipalType.USER, "u"),
+            _api_key(),
+            _quota(limit_value="1000"),
+        )
     keys, _ = await _tables(session_factory)
     assert "unrestricted" not in keys["ak-1"]
     # Still published, so the gateway can authenticate it; it just has to ask.
@@ -789,10 +820,15 @@ async def test_a_ceiling_on_the_key_withholds_the_local_shortcut(session_factory
 async def test_an_org_ceiling_withholds_the_shortcut_for_its_keys(session_factory):
     async with session_factory() as s:
         await _seed(
-            s, _principal(ORG), _principal(USER, PrincipalType.USER, "u"),
+            s,
+            _principal(ORG),
+            _principal(USER, PrincipalType.USER, "u"),
             _api_key(),
-            _quota(scope=QuotaScope.ORGANIZATION,
-                   limit_type=QuotaLimitType.MONTHLY_AMOUNT, limit_value="500"),
+            _quota(
+                scope=QuotaScope.ORGANIZATION,
+                limit_type=QuotaLimitType.MONTHLY_AMOUNT,
+                limit_value="500",
+            ),
         )
     keys, _ = await _tables(session_factory)
     assert "unrestricted" not in keys["ak-1"]
@@ -801,8 +837,13 @@ async def test_an_org_ceiling_withholds_the_shortcut_for_its_keys(session_factor
 @pytest.mark.asyncio
 async def test_a_disabled_ceiling_does_not_cost_the_shortcut(session_factory):
     async with session_factory() as s:
-        await _seed(s, _principal(ORG), _principal(USER, PrincipalType.USER, "u"),
-                    _api_key(), _quota(limit_value="1000", enabled=False))
+        await _seed(
+            s,
+            _principal(ORG),
+            _principal(USER, PrincipalType.USER, "u"),
+            _api_key(),
+            _quota(limit_value="1000", enabled=False),
+        )
     keys, _ = await _tables(session_factory)
     assert keys["ak-1"].get("unrestricted") is True
 
@@ -813,17 +854,16 @@ async def _tables(session_factory):
 
 
 @pytest.mark.asyncio
-async def test_gateway_auth_survives_billing_being_unreadable(
-    session_factory, caplog
-):
+async def test_gateway_auth_survives_billing_being_unreadable(session_factory, caplog):
     """Publishing credentials must not depend on the billing tables being there.
 
     An exception escaping the quota read would not degrade quota enforcement, it
     would stop gateway authentication for every key in the deployment.
     """
     async with session_factory() as s:
-        await _seed(s, _principal(ORG), _principal(USER, PrincipalType.USER, "u"),
-                    _api_key())
+        await _seed(
+            s, _principal(ORG), _principal(USER, PrincipalType.USER, "u"), _api_key()
+        )
 
     class _Broken:
         async def exec(self, *args, **kwargs):
@@ -831,13 +871,13 @@ async def test_gateway_auth_survives_billing_being_unreadable(
 
     from gpustack.server.gateway_auth_reconciler import _quota_subjects
 
-    with caplog.at_level(
-        "WARNING", logger="gpustack.server.gateway_auth_reconciler"
-    ):
+    with caplog.at_level("WARNING", logger="gpustack.server.gateway_auth_reconciler"):
         subjects = await _quota_subjects(_Broken())
 
     assert (subjects.api_key_ids, subjects.user_ids, subjects.principal_ids) == (
-        frozenset(), frozenset(), frozenset(),
+        frozenset(),
+        frozenset(),
+        frozenset(),
     )
     assert "could not read billing quotas" in caplog.text
 
@@ -850,7 +890,9 @@ def test_a_stub_credential_does_not_look_limited():
     from gpustack.server.gateway_auth_reconciler import gateway_key_unrestricted
 
     assert gateway_key_unrestricted(
-        [PermissionScope.ALL], None, PrincipalType.USER,
+        [PermissionScope.ALL],
+        None,
+        PrincipalType.USER,
         has_active_quota=(KEY in subjects.api_key_ids),
     )
     assert not gateway_key_unrestricted(

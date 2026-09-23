@@ -76,9 +76,7 @@ QUOTA_CACHE_TTL_SECONDS = 300
 # but not its meaning.
 TOKEN_SKUS = frozenset({SKU_TOKEN_PROMPT, SKU_TOKEN_COMPLETION, SKU_TOKEN_CACHED})
 
-_DAILY_TYPES = frozenset(
-    {QuotaLimitType.DAILY_TOKENS, QuotaLimitType.DAILY_AMOUNT}
-)
+_DAILY_TYPES = frozenset({QuotaLimitType.DAILY_TOKENS, QuotaLimitType.DAILY_AMOUNT})
 
 _cache: Optional[Tuple[Sequence["QuotaSpec"], float]] = None
 
@@ -142,9 +140,7 @@ async def enabled_quota_specs(session: AsyncSession) -> Sequence[QuotaSpec]:
     if _cache is not None and (now - _cache[1]) < QUOTA_CACHE_TTL_SECONDS:
         return _cache[0]
 
-    rows = (
-        await session.exec(select(Quota).where(Quota.enabled.is_(True)))
-    ).all()
+    rows = (await session.exec(select(Quota).where(Quota.enabled.is_(True)))).all()
     specs = tuple(
         QuotaSpec(
             id=row.id,
@@ -194,7 +190,9 @@ def specs_for_caller(
     return matched
 
 
-def window_start_for(limit_type: QuotaLimitType, at: Optional[datetime] = None) -> datetime:
+def window_start_for(
+    limit_type: QuotaLimitType, at: Optional[datetime] = None
+) -> datetime:
     """Start of the window ``limit_type`` counts, in UTC.
 
     Calendar windows rather than rolling ones: "tokens per day" means per UTC
@@ -235,15 +233,12 @@ async def usage_in_window(
         if spec.is_token_limit
         else func.sum(LedgerEntry.amount)
     )
-    statement = (
-        select(metric)
-        .where(
-            LedgerEntry.deleted_at.is_(None),
-            LedgerEntry.direction == LedgerDirection.DEBIT.value,
-            LedgerEntry.status != LedgerStatus.VOID.value,
-            LedgerEntry.occurred_at >= window_start,
-            _subject_predicate(spec),
-        )
+    statement = select(metric).where(
+        LedgerEntry.deleted_at.is_(None),
+        LedgerEntry.direction == LedgerDirection.DEBIT.value,
+        LedgerEntry.status != LedgerStatus.VOID.value,
+        LedgerEntry.occurred_at >= window_start,
+        _subject_predicate(spec),
     )
     if spec.is_token_limit:
         statement = statement.where(LedgerEntry.sku.in_(list(TOKEN_SKUS)))
@@ -343,7 +338,9 @@ async def check_quota(
             model_name=model_name,
         )
     except Exception as e:
-        logger.warning(f"billing: could not load quotas for a request ({e}); allowing it")
+        logger.warning(
+            f"billing: could not load quotas for a request ({e}); allowing it"
+        )
         return
     if not specs:
         return

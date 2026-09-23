@@ -594,7 +594,9 @@ class BillingAlertDetector:
             )
         ).all()
         for row in rows:
-            mode, _count, total = row[0], int(row[1] or 0), Decimal(row[2] or 0)
+            # row is (settle_mode, count, total); the count is not reported, only
+            # the money, so it is not bound.
+            mode, total = row[0], Decimal(row[2] or 0)
             if mode == SettleMode.REALTIME.value:
                 report.pending_realtime_amount += total
             elif mode == SettleMode.DEFERRED.value:

@@ -404,8 +404,14 @@ async def update_quota(session: SessionDep, id: int, input: QuotaUpdate):
     # subject or model would leave it carrying a total that means something else
     # entirely — a ceiling that bites at the wrong threshold with no trace of why.
     # Delete and recreate to re-point a limit.
-    identity = ("scope", "principal_id", "user_id", "api_key_id", "model_name",
-                "limit_type")
+    identity = (
+        "scope",
+        "principal_id",
+        "user_id",
+        "api_key_id",
+        "model_name",
+        "limit_type",
+    )
     changed = [
         name
         for name in identity
@@ -645,9 +651,15 @@ async def get_invoice_entries(
         )
         .order_by(LedgerEntry.occurred_at, LedgerEntry.id)
     )
-    total = len((await session.exec(select(LedgerEntry.id).where(
-        LedgerEntry.invoice_id == id, LedgerEntry.deleted_at.is_(None)
-    ))).all())
+    total = len(
+        (
+            await session.exec(
+                select(LedgerEntry.id).where(
+                    LedgerEntry.invoice_id == id, LedgerEntry.deleted_at.is_(None)
+                )
+            )
+        ).all()
+    )
     rows = (
         await session.exec(
             statement.offset(max(0, (page - 1) * per_page)).limit(per_page)
@@ -767,9 +779,7 @@ async def export_invoice(session: SessionDep, id: int):
     return Response(
         content=payload,
         media_type=XLSX_MEDIA_TYPE,
-        headers=attachment_headers(
-            f"invoice-{invoice.principal_id}-{stamp}.xlsx"
-        ),
+        headers=attachment_headers(f"invoice-{invoice.principal_id}-{stamp}.xlsx"),
     )
 
 
@@ -845,10 +855,10 @@ async def _wallet_state(session, wallet) -> WalletState:
     state.outstanding_realtime = await outstanding_realtime_charges(
         session, wallet.principal_id
     )
-    state.outstanding_invoices = await outstanding_invoices(session, wallet.principal_id)
-    state.outstanding_total = (
-        state.outstanding_realtime + state.outstanding_invoices
+    state.outstanding_invoices = await outstanding_invoices(
+        session, wallet.principal_id
     )
+    state.outstanding_total = state.outstanding_realtime + state.outstanding_invoices
     return state
 
 
@@ -977,7 +987,9 @@ async def _wallet_or_404(session, principal_id: int) -> Wallet:
         )
     ).first()
     if wallet is None:
-        raise NotFoundException(message=f"wallet for principal {principal_id} not found")
+        raise NotFoundException(
+            message=f"wallet for principal {principal_id} not found"
+        )
     return wallet
 
 

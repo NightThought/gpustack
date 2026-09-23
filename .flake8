@@ -13,3 +13,12 @@ exclude =
     .mypy_cache
     */generated*
     */migrations
+# The billing drills under hack/billing are hand-run analyses against a staging
+# database: each phase checks a different invariant, so the branching is the
+# workload rather than an accident of it. Splitting them to satisfy a complexity
+# number would scatter one procedure across helpers and make a manual run harder
+# to follow, which is the opposite of what a drill needs. They ship in no
+# distribution; the rest of the repository, including every importable module, is
+# still held to the limit.
+per-file-ignores =
+    hack/billing/*: C901

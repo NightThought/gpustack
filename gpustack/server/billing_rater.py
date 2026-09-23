@@ -661,9 +661,9 @@ class BillingRater:
             unit_price=Decimal(0),
             amount=Decimal(0),
             direction=LedgerDirection.DEBIT,
-            settle_mode=settle_mode_for_sku(sku)
-            if _is_known_sku(sku)
-            else SettleMode.DEFERRED,
+            settle_mode=(
+                settle_mode_for_sku(sku) if _is_known_sku(sku) else SettleMode.DEFERRED
+            ),
             status=LedgerStatus.VOID,
             occurred_at=occurred_at,
             **attribution,

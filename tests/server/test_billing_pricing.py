@@ -219,17 +219,13 @@ async def test_resolve_newest_window_wins(session):
 @pytest.mark.asyncio
 async def test_resolve_group_specific_beats_plain_model(session):
     session.add(_price(1, model_name="Qwen3-8B", price="0.002"))
-    session.add(
-        _price(2, model_name="Qwen3-8B", group_name="vip", price="0.0016")
-    )
+    session.add(_price(2, model_name="Qwen3-8B", group_name="vip", price="0.0016"))
     await session.commit()
 
     vip = await resolve_price(
         session, sku=SKU_TOKEN_PROMPT, model_name="Qwen3-8B", group_name="vip"
     )
-    plain = await resolve_price(
-        session, sku=SKU_TOKEN_PROMPT, model_name="Qwen3-8B"
-    )
+    plain = await resolve_price(session, sku=SKU_TOKEN_PROMPT, model_name="Qwen3-8B")
     assert vip.id == 2
     assert plain.id == 1
 
@@ -264,9 +260,7 @@ async def test_resolve_outside_window_returns_none(session):
     await session.commit()
 
     assert (
-        await resolve_price(
-            session, sku=SKU_TOKEN_PROMPT, model_name="Qwen3-8B", at=T2
-        )
+        await resolve_price(session, sku=SKU_TOKEN_PROMPT, model_name="Qwen3-8B", at=T2)
         is None
     )
 
@@ -329,9 +323,7 @@ async def test_resource_sku_does_not_inherit_a_model_price(session):
     session.add(_price(1, model_name="Qwen3-8B", price="0.002"))
     await session.commit()
 
-    assert (
-        await resolve_price(session, sku=SKU_TOKEN_PROMPT, model_name=None) is None
-    )
+    assert await resolve_price(session, sku=SKU_TOKEN_PROMPT, model_name=None) is None
 
 
 @pytest.mark.asyncio
@@ -348,10 +340,16 @@ async def test_resolve_accepts_a_naive_instant(session):
 
     naive_at = T0 + timedelta(days=1)  # no tzinfo
     aware_at = naive_at.replace(tzinfo=timezone.utc)
-    assert (await resolve_price(session, sku=SKU_TOKEN_PROMPT,
-                               model_name="Qwen3-8B", at=naive_at)).id == 1
-    assert (await resolve_price(session, sku=SKU_TOKEN_PROMPT,
-                               model_name="Qwen3-8B", at=aware_at)).id == 1
+    assert (
+        await resolve_price(
+            session, sku=SKU_TOKEN_PROMPT, model_name="Qwen3-8B", at=naive_at
+        )
+    ).id == 1
+    assert (
+        await resolve_price(
+            session, sku=SKU_TOKEN_PROMPT, model_name="Qwen3-8B", at=aware_at
+        )
+    ).id == 1
 
 
 def test_windows_overlap_mixes_naive_and_aware():
@@ -382,9 +380,7 @@ def test_pick_price_is_pure():
     ]
     chosen = pick_price(rows, sku=SKU_TOKEN_PROMPT, at=T0, model_name="Qwen3-8B")
     assert chosen.id == 2
-    assert (
-        pick_price(rows, sku=SKU_TOKEN_CACHED, at=T0, model_name="Qwen3-8B") is None
-    )
+    assert pick_price(rows, sku=SKU_TOKEN_CACHED, at=T0, model_name="Qwen3-8B") is None
 
 
 # ---------------------------------------------------------------------------
@@ -404,9 +400,7 @@ def test_pick_price_is_pure():
     ],
 )
 def test_compute_amount(price, per_quantity, quantity, expected):
-    entry = _price(
-        1, price=price, per_quantity=per_quantity, unit=UNIT_TOKENS
-    )
+    entry = _price(1, price=price, per_quantity=per_quantity, unit=UNIT_TOKENS)
     assert compute_amount(entry, Decimal(quantity)) == Decimal(expected)
 
 

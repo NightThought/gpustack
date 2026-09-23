@@ -211,7 +211,9 @@ async def test_the_operator_and_reason_are_recorded(engine, session_factory):
     await _seed(session_factory, _wallet())
 
     async with session_factory() as s:
-        await _adjust(s, amount="10", key="TICKET-5", reason="goodwill credit for outage")
+        await _adjust(
+            s, amount="10", key="TICKET-5", reason="goodwill credit for outage"
+        )
 
     adjustment = (await _adjustments(engine))[0]
     assert adjustment.operator_id == OPERATOR
@@ -242,9 +244,7 @@ async def test_replaying_the_same_request_moves_money_once(engine, session_facto
 
 
 @pytest.mark.asyncio
-async def test_a_key_reused_for_a_different_amount_is_refused(
-    engine, session_factory
-):
+async def test_a_key_reused_for_a_different_amount_is_refused(engine, session_factory):
     """Not a retry — a mistake, and the loud kind is the safe kind.
 
     Silently returning the original would leave an operator believing a 500
@@ -265,9 +265,7 @@ async def test_a_key_reused_for_a_different_amount_is_refused(
 
 
 @pytest.mark.asyncio
-async def test_a_key_reused_for_another_principal_is_refused(
-    engine, session_factory
-):
+async def test_a_key_reused_for_another_principal_is_refused(engine, session_factory):
     await _seed(session_factory, _wallet(balance="1000"))
 
     async with session_factory() as s:

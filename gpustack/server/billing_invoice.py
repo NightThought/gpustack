@@ -255,9 +255,7 @@ class BillingInvoicer:
         self._period = period or billing_period()
         self._cron = cron if cron is not None else envs.BILLING_INVOICE_CRON
         self._lookback = (
-            lookback
-            if lookback is not None
-            else envs.BILLING_INVOICE_LOOKBACK_PERIODS
+            lookback if lookback is not None else envs.BILLING_INVOICE_LOOKBACK_PERIODS
         )
         try:
             self._trigger = CronTrigger.from_crontab(self._cron, timezone=timezone.utc)
@@ -466,9 +464,7 @@ class BillingInvoicer:
             self._period, now=now, lookback=self._lookback
         ):
             report.periods_scanned += 1
-            subjects = await self._subjects_with_uninvoiced_usage(
-                session, period_end
-            )
+            subjects = await self._subjects_with_uninvoiced_usage(session, period_end)
             for principal_id, entry_count, total in subjects:
                 if not in_enforce_scope(principal_id, scope):
                     # Rated and priced, deliberately not billed: this org is
@@ -608,7 +604,9 @@ class BillingInvoicer:
         currency = lines[0][3] or "CNY"
 
         carried = await self._carried_totals(
-            session, principal_id=principal_id, period_start=period_start,
+            session,
+            principal_id=principal_id,
+            period_start=period_start,
             period_end=period_end,
         )
         principal_name = await self._principal_name(session, principal_id, predicate)

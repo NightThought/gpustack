@@ -151,9 +151,7 @@ async def resume_keys_for_wallet(
     if commit:
         await session.commit()
     await _drop_auth_cache(keys)
-    logger.info(
-        f"billing: resumed {len(keys)} api key(s) for principal {principal_id}"
-    )
+    logger.info(f"billing: resumed {len(keys)} api key(s) for principal {principal_id}")
     return len(keys)
 
 

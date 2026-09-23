@@ -332,7 +332,9 @@ async def test_a_clean_key_passes_without_touching_the_database():
 
     class _NoQueries:
         def __getattr__(self, name):
-            raise AssertionError(f"assert_billing_active must not use the session ({name})")
+            raise AssertionError(
+                f"assert_billing_active must not use the session ({name})"
+            )
 
     await assert_billing_active(
         _NoQueries(), api_key=_key(1, "ak-org"), user=None, model_name="Qwen3-8B"
@@ -383,9 +385,7 @@ async def test_openai_shaped_error_for_the_proxy_path(session):
     key = _key(1, "ak-org", suspended=True, reason=REASON_ARREARS)
 
     with pytest.raises(PaymentRequiredException) as shaped:
-        await assert_billing_active(
-            session, api_key=key, user=None, openai_shaped=True
-        )
+        await assert_billing_active(session, api_key=key, user=None, openai_shaped=True)
     with pytest.raises(PaymentRequiredException) as plain:
         await assert_billing_active(session, api_key=key, user=None)
 
@@ -418,8 +418,13 @@ async def test_gateway_table_excludes_suspended_keys(engine, session_factory):
         _principal(ORG),
         _principal(USER_IN_ORG, PrincipalType.USER, "user-in-org"),
         _key(1, "ak-live", user_id=USER_IN_ORG),
-        _key(2, "ak-suspended", user_id=USER_IN_ORG, suspended=True,
-             reason=REASON_ARREARS),
+        _key(
+            2,
+            "ak-suspended",
+            user_id=USER_IN_ORG,
+            suspended=True,
+            reason=REASON_ARREARS,
+        ),
     )
 
     async with session_factory() as s:
@@ -487,9 +492,7 @@ async def test_settling_into_arrears_suspends_the_keys(engine, session_factory):
 
 
 @pytest.mark.asyncio
-async def test_top_up_resumes_keys_and_collects_the_arrears(
-    engine, session_factory
-):
+async def test_top_up_resumes_keys_and_collects_the_arrears(engine, session_factory):
     await _seed(
         session_factory,
         _principal(ORG),

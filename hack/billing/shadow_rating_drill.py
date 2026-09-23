@@ -147,17 +147,71 @@ REQUESTS = [
 # (id, meter, resource_type, name, quantity, sku_count, gpu_type, sealed,
 #  payer, unit, scenario)
 BUCKETS = [
-    (9902001, METER_INSTANCE_UPTIME, RESOURCE_TYPE_GPU_INSTANCE, "inst-8card",
-     3600, Decimal(8), "910b", True, ORG_A, UNIT_SECONDS, "910B×8 整机 1 小时"),
-    (9902002, METER_INSTANCE_UPTIME, RESOURCE_TYPE_GPU_INSTANCE, "inst-sliced",
-     1800, Decimal("0.5"), "910b", True, ORG_B, UNIT_SECONDS, "切片半卡 30 分钟"),
-    (9902003, METER_INSTANCE_UPTIME, RESOURCE_TYPE_GPU_INSTANCE, "inst-open",
-     3600, Decimal(2), "910b", False, ORG_A, UNIT_SECONDS, "未封桶→跳过"),
-    (9902004, METER_INSTANCE_UPTIME, RESOURCE_TYPE_CPU_INSTANCE, "inst-cpu",
-     3600, Decimal(1), None, True, ORG_A, UNIT_SECONDS, "CPU 实例→VOID"),
-    (9902005, METER_STORAGE_CAPACITY, RESOURCE_TYPE_PERSISTENT_VOLUME, "pv-100g",
-     102400 * 3600, Decimal(1), None, True, ORG_B, UNIT_MIB_SECONDS,
-     "100 GiB × 1 小时"),
+    (
+        9902001,
+        METER_INSTANCE_UPTIME,
+        RESOURCE_TYPE_GPU_INSTANCE,
+        "inst-8card",
+        3600,
+        Decimal(8),
+        "910b",
+        True,
+        ORG_A,
+        UNIT_SECONDS,
+        "910B×8 整机 1 小时",
+    ),
+    (
+        9902002,
+        METER_INSTANCE_UPTIME,
+        RESOURCE_TYPE_GPU_INSTANCE,
+        "inst-sliced",
+        1800,
+        Decimal("0.5"),
+        "910b",
+        True,
+        ORG_B,
+        UNIT_SECONDS,
+        "切片半卡 30 分钟",
+    ),
+    (
+        9902003,
+        METER_INSTANCE_UPTIME,
+        RESOURCE_TYPE_GPU_INSTANCE,
+        "inst-open",
+        3600,
+        Decimal(2),
+        "910b",
+        False,
+        ORG_A,
+        UNIT_SECONDS,
+        "未封桶→跳过",
+    ),
+    (
+        9902004,
+        METER_INSTANCE_UPTIME,
+        RESOURCE_TYPE_CPU_INSTANCE,
+        "inst-cpu",
+        3600,
+        Decimal(1),
+        None,
+        True,
+        ORG_A,
+        UNIT_SECONDS,
+        "CPU 实例→VOID",
+    ),
+    (
+        9902005,
+        METER_STORAGE_CAPACITY,
+        RESOURCE_TYPE_PERSISTENT_VOLUME,
+        "pv-100g",
+        102400 * 3600,
+        Decimal(1),
+        None,
+        True,
+        ORG_B,
+        UNIT_MIB_SECONDS,
+        "100 GiB × 1 小时",
+    ),
 ]
 
 
@@ -198,22 +252,39 @@ def expected_ledger() -> Dict[Tuple[str, int, str], Tuple[str, Decimal, Decimal]
                 continue
             if unpriced:
                 expected[("model_usage_details", rid, sku)] = (
-                    LedgerStatus.VOID.value, Decimal(0), Decimal(0)
+                    LedgerStatus.VOID.value,
+                    Decimal(0),
+                    Decimal(0),
                 )
                 continue
             price, per = prices[(sku, model)]
             expected[("model_usage_details", rid, sku)] = (
-                LedgerStatus.PENDING.value, qty, _money(qty * price / per)
+                LedgerStatus.PENDING.value,
+                qty,
+                _money(qty * price / per),
             )
 
-    for (bid, meter, _rt, _name, quantity, cards, gpu_type, sealed, _payer,
-         _unit, _s) in BUCKETS:
+    for (
+        bid,
+        meter,
+        _rt,
+        _name,
+        quantity,
+        cards,
+        gpu_type,
+        sealed,
+        _payer,
+        _unit,
+        _s,
+    ) in BUCKETS:
         if not sealed:
             continue
         if meter == METER_INSTANCE_UPTIME:
             if not gpu_type or cards <= 0:
                 expected[("metered_usage", bid, SKU_OUT_OF_SCOPE)] = (
-                    LedgerStatus.VOID.value, Decimal(0), Decimal(0)
+                    LedgerStatus.VOID.value,
+                    Decimal(0),
+                    Decimal(0),
                 )
                 continue
             sku = f"gpu.hour.{gpu_type}"
@@ -223,7 +294,9 @@ def expected_ledger() -> Dict[Tuple[str, int, str], Tuple[str, Decimal, Decimal]
             qty = Decimal(quantity) / Decimal(1024) / Decimal(3600)
         price, per = prices[(sku, None)]
         expected[("metered_usage", bid, sku)] = (
-            LedgerStatus.PENDING.value, qty, _money(qty * price / per)
+            LedgerStatus.PENDING.value,
+            qty,
+            _money(qty * price / per),
         )
     return expected
 
@@ -293,9 +366,7 @@ async def cleanup(session: AsyncSession) -> None:
         )
     )
     await session.exec(
-        delete(BillingSession).where(
-            BillingSession.principal_id.in_([ORG_A, ORG_B])
-        )
+        delete(BillingSession).where(BillingSession.principal_id.in_([ORG_A, ORG_B]))
     )
     await session.exec(delete(Wallet).where(Wallet.principal_id.in_([ORG_A, ORG_B])))
     await session.exec(delete(Quota).where(Quota.id.in_(list(QUOTA_IDS))))
@@ -306,9 +377,7 @@ async def cleanup(session: AsyncSession) -> None:
             )
         )
     )
-    await session.exec(
-        delete(Invoice).where(Invoice.principal_id.in_([ORG_A, ORG_B]))
-    )
+    await session.exec(delete(Invoice).where(Invoice.principal_id.in_([ORG_A, ORG_B])))
     await session.exec(
         delete(LedgerEntry).where(
             LedgerEntry.source_table == "billing_redemption",
@@ -319,13 +388,17 @@ async def cleanup(session: AsyncSession) -> None:
     await session.exec(
         delete(ModelUsageDetails).where(ModelUsageDetails.id.in_(list(REQUEST_IDS)))
     )
-    await session.exec(delete(MeteredUsage).where(MeteredUsage.id.in_(list(BUCKET_IDS))))
+    await session.exec(
+        delete(MeteredUsage).where(MeteredUsage.id.in_(list(BUCKET_IDS)))
+    )
     await session.exec(
         delete(PriceBookEntry).where(
             PriceBookEntry.model_name.in_(list(PRICED_MODELS) + ["Drill-Unpriced"])
         )
     )
-    await session.exec(delete(PriceBookEntry).where(PriceBookEntry.model_name.is_(None)))
+    await session.exec(
+        delete(PriceBookEntry).where(PriceBookEntry.model_name.is_(None))
+    )
     await session.commit()
 
 
@@ -373,8 +446,19 @@ async def seed(session: AsyncSession) -> None:
             )
         )
 
-    for (bid, meter, rtype, name, quantity, cards, gpu_type, sealed, payer,
-         unit, _s) in BUCKETS:
+    for (
+        bid,
+        meter,
+        rtype,
+        name,
+        quantity,
+        cards,
+        gpu_type,
+        sealed,
+        payer,
+        unit,
+        _s,
+    ) in BUCKETS:
         dimensions = {"gpu_count": int(cards)}
         if gpu_type:
             dimensions["gpu_type"] = gpu_type
@@ -465,9 +549,7 @@ async def run(database_url: str) -> int:
 
     async with AsyncSession(engine, expire_on_commit=False) as session:
         rows = await drill_ledger(session)
-        wallets = (
-            await session.exec(select(func.count()).select_from(Wallet))
-        ).one()
+        wallets = (await session.exec(select(func.count()).select_from(Wallet))).one()
 
     expected = expected_ledger()
     actual = {
@@ -504,9 +586,7 @@ async def run(database_url: str) -> int:
     for r in rows:
         if r.status != LedgerStatus.PENDING.value:
             continue
-        agg = by_sku.setdefault(
-            r.sku, [0, Decimal(0), Decimal(0), r.settle_mode]
-        )
+        agg = by_sku.setdefault(r.sku, [0, Decimal(0), Decimal(0), r.settle_mode])
         agg[0] += 1
         agg[1] += Decimal(r.quantity)
         agg[2] += Decimal(r.amount)
@@ -530,9 +610,9 @@ async def run(database_url: str) -> int:
     per_org: Dict[int, Decimal] = {}
     for r in rows:
         if r.status == LedgerStatus.PENDING.value and r.principal_id:
-            per_org[r.principal_id] = per_org.get(
-                r.principal_id, Decimal(0)
-            ) + Decimal(r.amount)
+            per_org[r.principal_id] = per_org.get(r.principal_id, Decimal(0)) + Decimal(
+                r.amount
+            )
     print("\n[7] 按租户汇总应付：")
     for pid, amount in sorted(per_org.items()):
         label = {ORG_A: "ORG_A", ORG_B: "ORG_B"}.get(pid, str(pid))
@@ -633,9 +713,7 @@ async def phase_b_settlement(engine) -> List[str]:
                 await session.exec(
                     select(LedgerEntry).where(
                         LedgerEntry.status == LedgerStatus.PENDING.value,
-                        LedgerEntry.source_id.in_(
-                            list(REQUEST_IDS) + list(BUCKET_IDS)
-                        ),
+                        LedgerEntry.source_id.in_(list(REQUEST_IDS) + list(BUCKET_IDS)),
                     )
                 )
             ).all()
@@ -658,9 +736,7 @@ async def phase_b_settlement(engine) -> List[str]:
         (Decimal(e.amount) for e in settled if e.principal_id == ORG_A), Decimal(0)
     )
     if settled_a != realtime_a:
-        problems.append(
-            f"ORG_A 已结算金额期望 {fmt(realtime_a)} 实际 {fmt(settled_a)}"
-        )
+        problems.append(f"ORG_A 已结算金额期望 {fmt(realtime_a)} 实际 {fmt(settled_a)}")
 
     # ORG_B: first charge exceeds the balance, so nothing settles and it is
     # suspended — with the balance untouched and never negative.
@@ -829,7 +905,9 @@ async def phase_c_quota(engine) -> List[str]:
     report = await BillingRater(mode=BillingMode.SHADOW).rate_once()
     print(f"      计价 sweep：{report.summary()}")
     if report.quotas_advanced < 1:
-        problems.append(f"sweep 未推进任何配额计数器（quotas_advanced={report.quotas_advanced}）")
+        problems.append(
+            f"sweep 未推进任何配额计数器（quotas_advanced={report.quotas_advanced}）"
+        )
 
     day_start = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = NOW.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -870,9 +948,7 @@ async def phase_c_quota(engine) -> List[str]:
                 )
             )
         ).first() or Decimal(0)
-        rows = {
-            q.id: q for q in (await session.exec(select(Quota))).all()
-        }
+        rows = {q.id: q for q in (await session.exec(select(Quota))).all()}
 
     key_used = Decimal(rows[QUOTA_KEY_ID].used)
     org_used = Decimal(rows[QUOTA_ORG_ID].used)
@@ -969,18 +1045,18 @@ async def phase_d_invoicing(engine) -> List[str]:
                     LedgerEntry.principal_id,
                     func.count(LedgerEntry.id),
                     func.sum(LedgerEntry.amount),
-                ).where(
+                )
+                .where(
                     LedgerEntry.deleted_at.is_(None),
                     LedgerEntry.settle_mode == SettleMode.DEFERRED.value,
                     LedgerEntry.status == LedgerStatus.PENDING.value,
                     LedgerEntry.invoice_id.is_(None),
                     LedgerEntry.principal_id.in_([ORG_A, ORG_B]),
-                ).group_by(LedgerEntry.principal_id)
+                )
+                .group_by(LedgerEntry.principal_id)
             )
         ).all()
-    expected = {
-        int(row[0]): (int(row[1]), Decimal(row[2] or 0)) for row in rows
-    }
+    expected = {int(row[0]): (int(row[1]), Decimal(row[2] or 0)) for row in rows}
     balances_before = await _wallet_balances(engine)
 
     invoicer = BillingInvoicer(mode=BillingMode.ENFORCE, period=BillingPeriod.MONTHLY)
@@ -1040,7 +1116,9 @@ async def phase_d_invoicing(engine) -> List[str]:
         funded = balances_before.get(principal_id, Decimal(0)) >= total
         if funded:
             if invoice.status != InvoiceStatus.SETTLED.value:
-                problems.append(f"{principal_id} 余额充足但账单未结清：{invoice.status}")
+                problems.append(
+                    f"{principal_id} 余额充足但账单未结清：{invoice.status}"
+                )
             took = balances_before[principal_id] - balances_after[principal_id]
             if took != total:
                 problems.append(

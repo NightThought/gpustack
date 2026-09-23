@@ -104,8 +104,9 @@ def _wallet(principal_id=ORG, balance="100", suspended=False):
     )
 
 
-def _code(id_=1, code="A" * 32, amount="50", status=RedemptionStatus.ENABLED,
-          expires_at=None):
+def _code(
+    id_=1, code="A" * 32, amount="50", status=RedemptionStatus.ENABLED, expires_at=None
+):
     return Redemption(
         id=id_,
         code=code,
@@ -288,9 +289,7 @@ async def test_settle_collects_pending_realtime_charges(engine, session_factory)
     entries = await _ledger(engine)
     assert all(e.status == LedgerStatus.SETTLED.value for e in entries)
     assert all(e.settled_at is not None for e in entries)
-    assert {e.billing_session_id for e in entries} == {
-        (await _sessions(engine))[0].id
-    }
+    assert {e.billing_session_id for e in entries} == {(await _sessions(engine))[0].id}
     settled_session = (await _sessions(engine))[0]
     assert settled_session.settled is True
     assert settled_session.actual == Decimal("3.75")
@@ -299,9 +298,7 @@ async def test_settle_collects_pending_realtime_charges(engine, session_factory)
 
 @pytest.mark.asyncio
 async def test_settle_is_idempotent(engine, session_factory):
-    await _seed(
-        session_factory, _wallet(balance="100"), _charge(1, amount="1.50")
-    )
+    await _seed(session_factory, _wallet(balance="100"), _charge(1, amount="1.50"))
     settler = BillingSettler(mode=BillingMode.ENFORCE)
 
     first = await settler.settle_once()
@@ -315,9 +312,7 @@ async def test_settle_is_idempotent(engine, session_factory):
 @pytest.mark.asyncio
 async def test_shadow_mode_never_debits(engine, session_factory):
     """What shadow reconciles is what enforce would charge — but not yet."""
-    await _seed(
-        session_factory, _wallet(balance="100"), _charge(1, amount="1.50")
-    )
+    await _seed(session_factory, _wallet(balance="100"), _charge(1, amount="1.50"))
 
     report = await BillingSettler(mode=BillingMode.SHADOW).settle_once()
 
@@ -370,7 +365,9 @@ async def test_insufficient_balance_settles_oldest_first_and_suspends(
     assert report.suspended == [ORG]
     assert (await _wallets(engine))[0].balance == Decimal("0.50")
 
-    settled = {e.source_id for e in await _ledger(engine, status=LedgerStatus.SETTLED.value)}
+    settled = {
+        e.source_id for e in await _ledger(engine, status=LedgerStatus.SETTLED.value)
+    }
     assert settled == {1, 2}
     pending = await _ledger(engine, status=LedgerStatus.PENDING.value)
     assert [e.source_id for e in pending] == [3]
@@ -552,9 +549,7 @@ async def test_refund_reverses_a_session_once(engine, session_factory):
         refunded = await settler.refund_session(s, session_id)
     assert refunded == Decimal("3.50")
     assert (await _wallets(engine))[0].balance == Decimal("100")
-    assert all(
-        e.status == LedgerStatus.PENDING.value for e in await _ledger(engine)
-    )
+    assert all(e.status == LedgerStatus.PENDING.value for e in await _ledger(engine))
 
     # A second refund must not pay out twice.
     async with session_factory() as s:
@@ -566,7 +561,9 @@ async def test_refund_reverses_a_session_once(engine, session_factory):
 async def test_refunding_an_unknown_session_is_rejected(engine, session_factory):
     settler = BillingSettler(mode=BillingMode.ENFORCE)
     async with session_factory() as s:
-        with pytest.raises(InvalidException, ):
+        with pytest.raises(
+            InvalidException,
+        ):
             await settler.refund_session(s, 424242)
 
 

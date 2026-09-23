@@ -220,7 +220,8 @@ def test_daily_bounds_are_the_utc_day():
 def test_an_aware_instant_is_normalised_before_bounds_are_taken():
     aware = datetime(2026, 9, 23, 14, 0, tzinfo=timezone.utc)
     assert period_bounds(BillingPeriod.MONTHLY, aware) == (
-        _utc(SEPTEMBER), _utc(OCTOBER)
+        _utc(SEPTEMBER),
+        _utc(OCTOBER),
     )
 
 
@@ -241,9 +242,7 @@ def test_the_in_flight_period_is_never_closed():
 def test_closed_periods_are_oldest_first():
     """So a pass after downtime collects old usage into the oldest statement it
     issues, rather than leaving it behind."""
-    periods = closed_periods(
-        BillingPeriod.DAILY, now=datetime(2026, 9, 23), lookback=3
-    )
+    periods = closed_periods(BillingPeriod.DAILY, now=datetime(2026, 9, 23), lookback=3)
     assert [start for start, _ in periods] == [
         _utc(datetime(2026, 9, 20)),
         _utc(datetime(2026, 9, 21)),
@@ -282,8 +281,12 @@ async def test_a_closed_period_becomes_one_paid_statement(engine, session_factor
     await _seed(
         session_factory,
         _wallet(balance="1000"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
-        _entry(2, quantity="8", amount="100.00", occurred_at=AUGUST + timedelta(hours=2)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
+        _entry(
+            2, quantity="8", amount="100.00", occurred_at=AUGUST + timedelta(hours=2)
+        ),
     )
 
     report = await _invoicer().invoice_once(now=NOW)
@@ -319,21 +322,41 @@ async def test_items_are_aggregated_per_sku_and_model(engine, session_factory):
     await _seed(
         session_factory,
         _wallet(balance="10000"),
-        _entry(1, sku=SKU_910B, quantity="10", amount="125.00",
-               occurred_at=AUGUST + timedelta(hours=1)),
-        _entry(2, sku=SKU_910B, quantity="6", amount="75.00",
-               occurred_at=AUGUST + timedelta(hours=2)),
-        _entry(3, sku=SKU_STORAGE_GB_HOUR, unit=UNIT_GB_HOURS, quantity="100",
-               amount="0.01", occurred_at=AUGUST + timedelta(hours=3)),
+        _entry(
+            1,
+            sku=SKU_910B,
+            quantity="10",
+            amount="125.00",
+            occurred_at=AUGUST + timedelta(hours=1),
+        ),
+        _entry(
+            2,
+            sku=SKU_910B,
+            quantity="6",
+            amount="75.00",
+            occurred_at=AUGUST + timedelta(hours=2),
+        ),
+        _entry(
+            3,
+            sku=SKU_STORAGE_GB_HOUR,
+            unit=UNIT_GB_HOURS,
+            quantity="100",
+            amount="0.01",
+            occurred_at=AUGUST + timedelta(hours=3),
+        ),
         # Same SKU, different model: a separate line, because a tenant reading a
         # statement asks which deployment the hours belong to.
-        _entry(4, sku=SKU_910B, quantity="2", amount="25.00", model_name="Qwen3-8B",
-               occurred_at=AUGUST + timedelta(hours=4)),
+        _entry(
+            4,
+            sku=SKU_910B,
+            quantity="2",
+            amount="25.00",
+            model_name="Qwen3-8B",
+            occurred_at=AUGUST + timedelta(hours=4),
+        ),
     )
 
-    await _invoicer(period=BillingPeriod.MONTHLY).invoice_once(
-        now=datetime(2026, 9, 5)
-    )
+    await _invoicer(period=BillingPeriod.MONTHLY).invoice_once(now=datetime(2026, 9, 5))
 
     invoice = (await _invoices(engine))[0]
     lines = await _items(engine, invoice.id)
@@ -368,7 +391,9 @@ async def test_realtime_token_charges_are_never_invoiced(engine, session_factory
             settle_mode=SettleMode.REALTIME,
             occurred_at=AUGUST + timedelta(hours=1),
         ),
-        _entry(2, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=2)),
+        _entry(
+            2, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=2)
+        ),
     )
 
     report = await _invoicer().invoice_once(now=datetime(2026, 9, 5))
@@ -389,9 +414,16 @@ async def test_unpriced_placeholders_are_not_invoiced(engine, session_factory):
     await _seed(
         session_factory,
         _wallet(balance="10000"),
-        _entry(1, status=LedgerStatus.VOID, quantity="0", amount="0",
-               occurred_at=AUGUST + timedelta(hours=1)),
-        _entry(2, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=2)),
+        _entry(
+            1,
+            status=LedgerStatus.VOID,
+            quantity="0",
+            amount="0",
+            occurred_at=AUGUST + timedelta(hours=1),
+        ),
+        _entry(
+            2, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=2)
+        ),
     )
 
     report = await _invoicer().invoice_once(now=datetime(2026, 9, 5))
@@ -410,8 +442,13 @@ async def test_usage_with_no_payer_is_left_for_the_rater_to_explain(
     await _seed(
         session_factory,
         _wallet(balance="10000"),
-        _entry(1, principal_id=None, quantity="12", amount="150.00",
-               occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1,
+            principal_id=None,
+            quantity="12",
+            amount="150.00",
+            occurred_at=AUGUST + timedelta(hours=1),
+        ),
     )
 
     report = await _invoicer().invoice_once(now=datetime(2026, 9, 5))
@@ -425,7 +462,9 @@ async def test_usage_in_the_open_period_waits(engine, session_factory):
     await _seed(
         session_factory,
         _wallet(balance="10000"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=SEPTEMBER + timedelta(days=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=SEPTEMBER + timedelta(days=1)
+        ),
     )
 
     report = await _invoicer().invoice_once(now=NOW)
@@ -443,7 +482,12 @@ async def test_a_period_boundary_is_half_open(engine, session_factory):
         session_factory,
         _wallet(balance="100000"),
         # Last instant of August, and the first of September.
-        _entry(1, quantity="1", amount="10.00", occurred_at=SEPTEMBER - timedelta(seconds=1)),
+        _entry(
+            1,
+            quantity="1",
+            amount="10.00",
+            occurred_at=SEPTEMBER - timedelta(seconds=1),
+        ),
         _entry(2, quantity="1", amount="20.00", occurred_at=SEPTEMBER),
     )
 
@@ -458,13 +502,13 @@ async def test_a_period_boundary_is_half_open(engine, session_factory):
 
 
 @pytest.mark.asyncio
-async def test_a_second_pass_issues_nothing_and_debits_nothing(
-    engine, session_factory
-):
+async def test_a_second_pass_issues_nothing_and_debits_nothing(engine, session_factory):
     await _seed(
         session_factory,
         _wallet(balance="1000"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
     invoicer = _invoicer()
 
@@ -484,10 +528,20 @@ async def test_each_org_gets_its_own_statement(engine, session_factory):
         session_factory,
         _wallet(ORG_A, balance="1000"),
         _wallet(ORG_B, balance="1000"),
-        _entry(1, principal_id=ORG_A, quantity="12", amount="150.00",
-               occurred_at=AUGUST + timedelta(hours=1)),
-        _entry(2, principal_id=ORG_B, quantity="4", amount="50.00",
-               occurred_at=AUGUST + timedelta(hours=2)),
+        _entry(
+            1,
+            principal_id=ORG_A,
+            quantity="12",
+            amount="150.00",
+            occurred_at=AUGUST + timedelta(hours=1),
+        ),
+        _entry(
+            2,
+            principal_id=ORG_B,
+            quantity="4",
+            amount="50.00",
+            occurred_at=AUGUST + timedelta(hours=2),
+        ),
     )
 
     report = await _invoicer().invoice_once(now=datetime(2026, 9, 5))
@@ -539,7 +593,9 @@ async def test_late_usage_for_an_unstated_period_gets_its_own_statement(
     await _seed(
         session_factory,
         _wallet(balance="10000"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
     invoicer = _invoicer()
     # Only August has usage, so only August is stated; July has no invoice.
@@ -574,7 +630,9 @@ async def test_late_usage_for_a_stated_period_rides_the_next_statement(
     await _seed(
         session_factory,
         _wallet(balance="10000"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
     invoicer = _invoicer()
     await invoicer.invoice_once(now=datetime(2026, 9, 5))
@@ -582,7 +640,9 @@ async def test_late_usage_for_a_stated_period_rides_the_next_statement(
 
     await _seed(
         session_factory,
-        _entry(2, quantity="4", amount="50.00", occurred_at=AUGUST + timedelta(hours=5)),
+        _entry(
+            2, quantity="4", amount="50.00", occurred_at=AUGUST + timedelta(hours=5)
+        ),
     )
 
     # August is still the newest closed period and is already stated: the entry
@@ -612,7 +672,9 @@ async def test_late_usage_waits_when_every_closed_period_is_already_stated(
     await _seed(
         session_factory,
         _wallet(balance="10000"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
     invoicer = _invoicer()
     await invoicer.invoice_once(now=datetime(2026, 9, 5))
@@ -620,7 +682,9 @@ async def test_late_usage_waits_when_every_closed_period_is_already_stated(
     # August is invoiced and is still the newest closed period.
     await _seed(
         session_factory,
-        _entry(2, quantity="4", amount="50.00", occurred_at=AUGUST + timedelta(hours=5)),
+        _entry(
+            2, quantity="4", amount="50.00", occurred_at=AUGUST + timedelta(hours=5)
+        ),
     )
     report = await invoicer.invoice_once(now=datetime(2026, 9, 6))
 
@@ -641,7 +705,9 @@ async def test_an_uncollectable_statement_suspends_the_org(engine, session_facto
     await _seed(
         session_factory,
         _wallet(balance="100"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
 
     report = await _invoicer().invoice_once(now=datetime(2026, 9, 5))
@@ -672,7 +738,9 @@ async def test_a_top_up_clears_an_outstanding_statement_on_the_next_pass(
     await _seed(
         session_factory,
         _wallet(balance="100", suspended=True),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
     invoicer = _invoicer()
     await invoicer.invoice_once(now=datetime(2026, 9, 5))
@@ -704,7 +772,9 @@ async def test_an_unpaid_statement_is_retried_and_still_uncollectable(
     await _seed(
         session_factory,
         _wallet(balance="10"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
     invoicer = _invoicer()
     await invoicer.invoice_once(now=datetime(2026, 9, 5))
@@ -725,10 +795,20 @@ async def test_one_org_failing_does_not_block_another(engine, session_factory):
         session_factory,
         _wallet(ORG_A, balance="10"),
         _wallet(ORG_B, balance="1000"),
-        _entry(1, principal_id=ORG_A, quantity="12", amount="150.00",
-               occurred_at=AUGUST + timedelta(hours=1)),
-        _entry(2, principal_id=ORG_B, quantity="4", amount="50.00",
-               occurred_at=AUGUST + timedelta(hours=2)),
+        _entry(
+            1,
+            principal_id=ORG_A,
+            quantity="12",
+            amount="150.00",
+            occurred_at=AUGUST + timedelta(hours=1),
+        ),
+        _entry(
+            2,
+            principal_id=ORG_B,
+            quantity="4",
+            amount="50.00",
+            occurred_at=AUGUST + timedelta(hours=2),
+        ),
     )
 
     report = await _invoicer().invoice_once(now=datetime(2026, 9, 5))
@@ -751,7 +831,9 @@ async def test_a_suspension_for_an_unpaid_statement_reaches_the_keys(
     await _seed(
         session_factory,
         _wallet(balance="10"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
         ApiKey(
             id=1,
             name="key1",
@@ -786,7 +868,9 @@ async def test_shadow_mode_writes_no_statement_and_takes_no_money(
     await _seed(
         session_factory,
         _wallet(balance="1000"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
 
     report = await _invoicer(mode=BillingMode.SHADOW).invoice_once(
@@ -805,7 +889,9 @@ async def test_off_mode_is_also_a_no_op(engine, session_factory):
     await _seed(
         session_factory,
         _wallet(balance="1000"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
 
     report = await _invoicer(mode=BillingMode.OFF).invoice_once(
@@ -846,7 +932,9 @@ async def test_the_summary_names_what_a_pass_did(engine, session_factory):
     await _seed(
         session_factory,
         _wallet(balance="1000"),
-        _entry(1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)),
+        _entry(
+            1, quantity="12", amount="150.00", occurred_at=AUGUST + timedelta(hours=1)
+        ),
     )
 
     report = await _invoicer().invoice_once(now=datetime(2026, 9, 5))
@@ -874,10 +962,20 @@ async def test_an_org_outside_the_whitelist_gets_no_statement(
         session_factory,
         _wallet(ORG_A, balance="10000"),
         _wallet(ORG_B, balance="10000"),
-        _entry(1, principal_id=ORG_A, quantity="12", amount="150.00",
-               occurred_at=AUGUST + timedelta(hours=1)),
-        _entry(2, principal_id=ORG_B, quantity="4", amount="50.00",
-               occurred_at=AUGUST + timedelta(hours=2)),
+        _entry(
+            1,
+            principal_id=ORG_A,
+            quantity="12",
+            amount="150.00",
+            occurred_at=AUGUST + timedelta(hours=1),
+        ),
+        _entry(
+            2,
+            principal_id=ORG_B,
+            quantity="4",
+            amount="50.00",
+            occurred_at=AUGUST + timedelta(hours=2),
+        ),
     )
 
     report = await _invoicer().invoice_once(now=datetime(2026, 9, 5))
@@ -902,8 +1000,13 @@ async def test_bringing_an_org_into_scope_bills_what_waited(
     await _seed(
         session_factory,
         _wallet(ORG_B, balance="10000"),
-        _entry(2, principal_id=ORG_B, quantity="4", amount="50.00",
-               occurred_at=AUGUST + timedelta(hours=2)),
+        _entry(
+            2,
+            principal_id=ORG_B,
+            quantity="4",
+            amount="50.00",
+            occurred_at=AUGUST + timedelta(hours=2),
+        ),
     )
     invoicer = _invoicer()
     assert (await invoicer.invoice_once(now=datetime(2026, 9, 5))).invoices_issued == 0

@@ -225,9 +225,7 @@ async def test_update_price_bumps_version(client):
     """
     created = (await client.post(PREFIX, json=_payload())).json()
 
-    r = await client.put(
-        f"{PREFIX}/{created['id']}", json=_payload(price="0.0015")
-    )
+    r = await client.put(f"{PREFIX}/{created['id']}", json=_payload(price="0.0015"))
     assert r.status_code == 200, r.text
     body = r.json()
     assert float(body["price"]) == 0.0015

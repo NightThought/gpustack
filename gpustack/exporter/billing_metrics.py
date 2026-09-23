@@ -112,9 +112,7 @@ class BillingMetricsCollector(Collector):
             counts[(alert.kind.value, alert.severity.value)] = (
                 counts.get((alert.kind.value, alert.severity.value), 0) + 1
             )
-            occurrences.add_metric(
-                [alert.kind.value, alert.key], alert.occurrences
-            )
+            occurrences.add_metric([alert.kind.value, alert.key], alert.occurrences)
             age.add_metric([alert.kind.value, alert.key], alert.age.total_seconds())
         for kind in BillingAlertKind:
             for severity in ("warning", "critical"):

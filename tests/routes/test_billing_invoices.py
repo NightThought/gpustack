@@ -87,8 +87,15 @@ async def client(app_and_engine):
         yield ac
 
 
-def _invoice(id_, *, principal_id=ORG_A, period_start=AUGUST, amount="250.00",
-             status=InvoiceStatus.SETTLED, name="org-a"):
+def _invoice(
+    id_,
+    *,
+    principal_id=ORG_A,
+    period_start=AUGUST,
+    amount="250.00",
+    status=InvoiceStatus.SETTLED,
+    name="org-a",
+):
     return Invoice(
         id=id_,
         principal_id=principal_id,
@@ -106,8 +113,17 @@ def _invoice(id_, *, principal_id=ORG_A, period_start=AUGUST, amount="250.00",
     )
 
 
-def _item(id_, invoice_id, *, sku=SKU_910B, unit=UNIT_GPU_HOURS, quantity="16",
-          amount="200.00", model_name=None, entry_count=2):
+def _item(
+    id_,
+    invoice_id,
+    *,
+    sku=SKU_910B,
+    unit=UNIT_GPU_HOURS,
+    quantity="16",
+    amount="200.00",
+    model_name=None,
+    entry_count=2,
+):
     return InvoiceItem(
         id=id_,
         invoice_id=invoice_id,
@@ -122,9 +138,17 @@ def _item(id_, invoice_id, *, sku=SKU_910B, unit=UNIT_GPU_HOURS, quantity="16",
     )
 
 
-def _entry(id_, invoice_id, *, sku=SKU_910B, quantity="12", amount="150.00",
-           request_id="req-abc-123", occurred_at=AUGUST + timedelta(hours=1),
-           resource_name="worker-1"):
+def _entry(
+    id_,
+    invoice_id,
+    *,
+    sku=SKU_910B,
+    quantity="12",
+    amount="150.00",
+    request_id="req-abc-123",
+    occurred_at=AUGUST + timedelta(hours=1),
+    resource_name="worker-1",
+):
     return LedgerEntry(
         id=id_,
         source_table="metered_usage",
@@ -163,13 +187,32 @@ async def _seed_one_statement(engine):
         engine,
         _invoice(1, amount="250.01"),
         _item(1, 1, sku=SKU_910B, quantity="16", amount="200.00", entry_count=2),
-        _item(2, 1, sku=SKU_STORAGE_GB_HOUR, unit=UNIT_GB_HOURS, quantity="100",
-              amount="50.01", entry_count=1),
+        _item(
+            2,
+            1,
+            sku=SKU_STORAGE_GB_HOUR,
+            unit=UNIT_GB_HOURS,
+            quantity="100",
+            amount="50.01",
+            entry_count=1,
+        ),
         _entry(1, 1, request_id="req-gpu-1", amount="150.00"),
-        _entry(2, 1, request_id="req-gpu-2", amount="50.00",
-               occurred_at=AUGUST + timedelta(hours=2)),
-        _entry(3, 1, sku=SKU_STORAGE_GB_HOUR, request_id=None, amount="50.01",
-               resource_name="pv-data", occurred_at=AUGUST + timedelta(hours=3)),
+        _entry(
+            2,
+            1,
+            request_id="req-gpu-2",
+            amount="50.00",
+            occurred_at=AUGUST + timedelta(hours=2),
+        ),
+        _entry(
+            3,
+            1,
+            sku=SKU_STORAGE_GB_HOUR,
+            request_id=None,
+            amount="50.01",
+            resource_name="pv-data",
+            occurred_at=AUGUST + timedelta(hours=3),
+        ),
     )
 
 
@@ -184,8 +227,9 @@ async def test_list_is_paginated(client, app_and_engine):
     await _seed(
         engine,
         _invoice(1, principal_id=ORG_A, period_start=AUGUST),
-        _invoice(2, principal_id=ORG_B, period_start=AUGUST, name="org-b",
-                 amount="80.00"),
+        _invoice(
+            2, principal_id=ORG_B, period_start=AUGUST, name="org-b", amount="80.00"
+        ),
         _invoice(3, principal_id=ORG_A, period_start=JULY, amount="120.00"),
     )
 
@@ -206,14 +250,21 @@ async def test_list_filters_by_org_and_status(client, app_and_engine):
     await _seed(
         engine,
         _invoice(1, principal_id=ORG_A, status=InvoiceStatus.SETTLED),
-        _invoice(2, principal_id=ORG_B, name="org-b", status=InvoiceStatus.ISSUED,
-                 amount="80.00"),
+        _invoice(
+            2,
+            principal_id=ORG_B,
+            name="org-b",
+            status=InvoiceStatus.ISSUED,
+            amount="80.00",
+        ),
     )
 
     only_a = await client.get(PREFIX, params={"principal_id": ORG_A})
     assert only_a.json()["pagination"]["total"] == 1
 
-    only_unpaid = await client.get(PREFIX, params={"status": InvoiceStatus.ISSUED.value})
+    only_unpaid = await client.get(
+        PREFIX, params={"status": InvoiceStatus.ISSUED.value}
+    )
     assert only_unpaid.json()["pagination"]["total"] == 1
     assert only_unpaid.json()["items"][0]["principal_id"] == ORG_B
     assert only_unpaid.json()["items"][0]["unpaid_reason"] == "billing:unpaid"
@@ -264,9 +315,7 @@ async def test_list_searches_by_org_name(client, app_and_engine):
 
 
 @pytest.mark.asyncio
-async def test_detail_carries_the_lines_that_make_up_its_total(
-    client, app_and_engine
-):
+async def test_detail_carries_the_lines_that_make_up_its_total(client, app_and_engine):
     _, engine = app_and_engine
     await _seed_one_statement(engine)
 
@@ -296,9 +345,7 @@ async def test_an_unknown_statement_is_a_404(client):
 
 
 @pytest.mark.asyncio
-async def test_entries_expose_the_request_id_behind_each_charge(
-    client, app_and_engine
-):
+async def test_entries_expose_the_request_id_behind_each_charge(client, app_and_engine):
     """The answer to "why was I charged this" has to reach the source row."""
     _, engine = app_and_engine
     await _seed_one_statement(engine)
@@ -424,8 +471,10 @@ async def test_an_unpaid_statement_exports_with_its_reason(client, app_and_engin
 
     response = await client.get(f"{PREFIX}/7/export")
 
-    sheet = zipfile.ZipFile(io.BytesIO(response.content)).read(
-        "xl/worksheets/sheet1.xml"
-    ).decode()
+    sheet = (
+        zipfile.ZipFile(io.BytesIO(response.content))
+        .read("xl/worksheets/sheet1.xml")
+        .decode()
+    )
     assert InvoiceStatus.ISSUED.value in sheet
     assert "billing:unpaid" in sheet

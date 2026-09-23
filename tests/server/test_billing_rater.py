@@ -460,9 +460,7 @@ async def test_unsealed_bucket_is_not_rated_yet(engine, session_factory):
 
 @pytest.mark.asyncio
 async def test_cpu_only_instance_is_marked_out_of_scope(engine, session_factory):
-    await _seed(
-        session_factory, _bucket(203, gpu_type=None, sku_count=Decimal(0))
-    )
+    await _seed(session_factory, _bucket(203, gpu_type=None, sku_count=Decimal(0)))
 
     report = await BillingRater(mode=BillingMode.SHADOW).rate_once()
 
@@ -595,7 +593,9 @@ async def test_batch_size_bounds_one_sweep(engine, session_factory):
 
 
 @pytest.mark.asyncio
-async def test_unpriced_gap_warns_once_then_reports_a_count(engine, session_factory, caplog):
+async def test_unpriced_gap_warns_once_then_reports_a_count(
+    engine, session_factory, caplog
+):
     """A permanently unpriced model must not warn every sweep.
 
     The gap is retried until a price appears, so without dedup the same warning

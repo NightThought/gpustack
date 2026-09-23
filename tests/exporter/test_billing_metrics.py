@@ -80,32 +80,53 @@ def test_the_snapshot_is_served_as_published():
 
 def test_active_alerts_are_counted_per_kind_and_severity():
     billing_alerts.raise_alert(
-        BillingAlertKind.UNPRICED_GAP, "gpu.hour.910b",
-        severity=AlertSeverity.WARNING, summary="a",
+        BillingAlertKind.UNPRICED_GAP,
+        "gpu.hour.910b",
+        severity=AlertSeverity.WARNING,
+        summary="a",
     )
     billing_alerts.raise_alert(
-        BillingAlertKind.UNPRICED_GAP, "model.token.prompt",
-        severity=AlertSeverity.WARNING, summary="b",
+        BillingAlertKind.UNPRICED_GAP,
+        "model.token.prompt",
+        severity=AlertSeverity.WARNING,
+        summary="b",
     )
     billing_alerts.raise_alert(
-        BillingAlertKind.UNPAID_INVOICE, "7",
-        severity=AlertSeverity.CRITICAL, summary="c",
+        BillingAlertKind.UNPAID_INVOICE,
+        "7",
+        severity=AlertSeverity.CRITICAL,
+        summary="c",
     )
 
     metrics = list(BillingMetricsCollector().collect())
     name = metric_name("billing_alerts_active")
 
-    assert _sample(metrics, name, {
-        "kind": BillingAlertKind.UNPRICED_GAP.value, "severity": "warning"
-    }).value == 2.0
-    assert _sample(metrics, name, {
-        "kind": BillingAlertKind.UNPAID_INVOICE.value, "severity": "critical"
-    }).value == 1.0
+    assert (
+        _sample(
+            metrics,
+            name,
+            {"kind": BillingAlertKind.UNPRICED_GAP.value, "severity": "warning"},
+        ).value
+        == 2.0
+    )
+    assert (
+        _sample(
+            metrics,
+            name,
+            {"kind": BillingAlertKind.UNPAID_INVOICE.value, "severity": "critical"},
+        ).value
+        == 1.0
+    )
     # Every kind/severity pair is present, so a rule can be written against a
     # series that does not exist yet instead of one that appears only on failure.
-    assert _sample(metrics, name, {
-        "kind": BillingAlertKind.WALLET_SUSPENDED.value, "severity": "warning"
-    }).value == 0.0
+    assert (
+        _sample(
+            metrics,
+            name,
+            {"kind": BillingAlertKind.WALLET_SUSPENDED.value, "severity": "warning"},
+        ).value
+        == 0.0
+    )
 
 
 def test_occurrences_and_age_expose_how_long_a_problem_has_been_open():
@@ -113,41 +134,51 @@ def test_occurrences_and_age_expose_how_long_a_problem_has_been_open():
     only visible in these two."""
     for _ in range(4):
         billing_alerts.raise_alert(
-            BillingAlertKind.UNPRICED_GAP, "gpu.hour.910b",
-            severity=AlertSeverity.WARNING, summary="a",
+            BillingAlertKind.UNPRICED_GAP,
+            "gpu.hour.910b",
+            severity=AlertSeverity.WARNING,
+            summary="a",
         )
 
     metrics = list(BillingMetricsCollector().collect())
     labels = {"kind": BillingAlertKind.UNPRICED_GAP.value, "key": "gpu.hour.910b"}
 
     assert _sample(metrics, metric_name("billing_alert_occurrences"), labels).value == 4
-    assert (
-        _sample(metrics, metric_name("billing_alert_age_seconds"), labels).value >= 0
-    )
+    assert _sample(metrics, metric_name("billing_alert_age_seconds"), labels).value >= 0
 
 
 def test_raised_total_does_not_fall_when_a_problem_is_fixed():
     """A gauge of active alerts drops on resolution, which Prometheus would read
     as a counter reset if this series were used as one."""
     billing_alerts.raise_alert(
-        BillingAlertKind.WALLET_SUSPENDED, "1",
-        severity=AlertSeverity.WARNING, summary="a",
+        BillingAlertKind.WALLET_SUSPENDED,
+        "1",
+        severity=AlertSeverity.WARNING,
+        summary="a",
     )
     billing_alerts.resolve(BillingAlertKind.WALLET_SUSPENDED, "1")
     billing_alerts.raise_alert(
-        BillingAlertKind.WALLET_SUSPENDED, "1",
-        severity=AlertSeverity.WARNING, summary="a",
+        BillingAlertKind.WALLET_SUSPENDED,
+        "1",
+        severity=AlertSeverity.WARNING,
+        summary="a",
     )
 
     metrics = list(BillingMetricsCollector().collect())
     name = metric_name("billing_alerts_raised")
 
-    assert _sample(metrics, name, {
-        "kind": BillingAlertKind.WALLET_SUSPENDED.value
-    }).value == 2.0
-    assert _sample(metrics, metric_name("billing_alerts_active"), {
-        "kind": BillingAlertKind.WALLET_SUSPENDED.value, "severity": "warning"
-    }).value == 1.0
+    assert (
+        _sample(metrics, name, {"kind": BillingAlertKind.WALLET_SUSPENDED.value}).value
+        == 2.0
+    )
+    assert (
+        _sample(
+            metrics,
+            metric_name("billing_alerts_active"),
+            {"kind": BillingAlertKind.WALLET_SUSPENDED.value, "severity": "warning"},
+        ).value
+        == 1.0
+    )
 
 
 def test_a_registry_being_written_does_not_break_a_scrape():
@@ -179,8 +210,10 @@ def test_registry_isolation_between_instances():
     the module singleton testable at all."""
     other = BillingAlertRegistry()
     other.raise_alert(
-        BillingAlertKind.UNPAID_INVOICE, "1",
-        severity=AlertSeverity.WARNING, summary="x",
+        BillingAlertKind.UNPAID_INVOICE,
+        "1",
+        severity=AlertSeverity.WARNING,
+        summary="x",
     )
 
     assert billing_alerts.active() == []

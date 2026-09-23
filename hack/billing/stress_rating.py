@@ -427,9 +427,7 @@ async def run(database_url: str) -> int:
     throughput = (REQUESTS + BUCKETS) / sweep_seconds if sweep_seconds else 0.0
     slowest = max(durations) if durations else 0.0
     p50 = statistics.median(durations) if durations else 0.0
-    p95 = (
-        statistics.quantiles(durations, n=20)[18] if len(durations) >= 20 else slowest
-    )
+    p95 = statistics.quantiles(durations, n=20)[18] if len(durations) >= 20 else slowest
 
     print("\n[2] 结果")
     print(
