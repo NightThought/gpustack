@@ -90,6 +90,7 @@ from gpustack.server.worker_status_buffer import flush_worker_status_to_db
 from gpustack.server.metrics_collector import flush_gateway_metrics_to_db
 from gpustack.server.usage_details_archiver import UsageDetailsArchiver
 from gpustack.server.billing_rater import BillingRater
+from gpustack.server.billing_invoice import BillingInvoicer
 from gpustack.server.billing_settlement import BillingSettler
 from gpustack.server.resource_event_logger import ResourceEventLogger
 from gpustack.server.resource_usage_collector import ResourceUsageCollector
@@ -654,6 +655,30 @@ class Server:
         self._create_async_task(settler.start())
 
         logger.debug(f"Billing settler started (mode={settler.mode.value}).")
+
+    def _start_billing_invoicer(self):
+        # A third loop, on a cron rather than an interval: deferred (resource)
+        # charges are collected once a period closes, not continuously. Leader
+        # only for the same reason the settler is -- two invoicers would race on
+        # the one-invoice-per-period constraint, and the loser's transaction
+        # would abort after it had already debited nothing but logged everything.
+        try:
+            invoicer = BillingInvoicer()
+        except Exception:
+            logger.critical(
+                "Billing invoicer failed to initialize — invoicing is DISABLED. "
+                "Deferred charges will accrue in the ledger uncollected until "
+                "this is resolved (check GPUSTACK_BILLING_INVOICE_PERIOD and "
+                "GPUSTACK_BILLING_INVOICE_CRON).",
+                exc_info=True,
+            )
+            return
+        self._create_async_task(invoicer.start())
+
+        logger.debug(
+            f"Billing invoicer started (mode={invoicer.mode.value}, "
+            f"period={invoicer.period.value})."
+        )
 
     def _start_resource_usage(self):
         """Start the resource-metering pipeline: event logger → collectors →
@@ -1567,6 +1592,9 @@ class Server:
 
         # Billing Settler (priced ledger entries -> wallet debits; enforce only)
         self._start_billing_settler()
+
+        # Billing Invoicer (deferred entries -> period invoices; enforce only)
+        self._start_billing_invoicer()
 
         # Resource usage metering (event logger → collectors → archiver)
         self._start_resource_usage()

@@ -27,6 +27,7 @@ from unittest.mock import patch
 from gpustack.api.exceptions import PaymentRequiredException
 from gpustack.schemas.api_keys import ApiKey, PermissionScope
 from gpustack.schemas.billing import (
+    Invoice,
     SKU_TOKEN_PROMPT,
     BillingSession,
     LedgerDirection,
@@ -132,7 +133,16 @@ def _charge(id_, principal_id=ORG, amount="5.00"):
 async def engine():
     engine = create_async_engine("sqlite+aiosqlite://")
     async with engine.begin() as conn:
-        for model in (Principal, ApiKey, Wallet, LedgerEntry, BillingSession):
+        for model in (
+            Principal,
+            ApiKey,
+            Wallet,
+            LedgerEntry,
+            BillingSession,
+            # Resuming a suspension weighs unpaid invoices too (see
+            # billing_settlement.outstanding_charges).
+            Invoice,
+        ):
             await conn.run_sync(model.__table__.create)
     yield engine
     await engine.dispose()

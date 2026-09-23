@@ -511,6 +511,67 @@ class InvoiceItem(SQLModel, BaseModelMixin, table=True):
     model_config = ConfigDict(protected_namespaces=())
 
 
+# There is deliberately no ``InvoiceCreate`` / ``InvoiceUpdate``: a statement is
+# produced by the invoicer from the ledger and is not editable afterwards. An API
+# that could rewrite an amount would make every invoice unverifiable against the
+# entries it claims, which is the only thing that makes it auditable. Correction
+# runs through the ledger (a refund, a re-rate) and the next statement.
+
+
+class InvoiceItemPublic(SQLModel):
+    id: int
+    sku: str
+    model_name: Optional[str] = None
+    quantity: Decimal
+    unit: str
+    amount: Decimal
+    entry_count: int = 0
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class InvoicePublic(SQLModel):
+    id: int
+    principal_id: int
+    principal_name: Optional[str] = None
+    period_start: datetime
+    period_end: datetime
+    amount: Decimal
+    currency: str
+    status: InvoiceStatus
+    issued_at: Optional[datetime] = None
+    settled_at: Optional[datetime] = None
+    unpaid_reason: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class InvoiceDetail(InvoicePublic):
+    """One statement with the lines that make up its total."""
+
+    items: List[InvoiceItemPublic] = []
+
+
+class InvoiceListParams(ListParams):
+    sortable_fields: ClassVar[List[str]] = [
+        "id",
+        "principal_id",
+        "period_start",
+        "period_end",
+        "amount",
+        "status",
+        "issued_at",
+        "settled_at",
+        "created_at",
+        "updated_at",
+    ]
+
+
+InvoicesPublic = PaginatedList[InvoicePublic]
+
+
 # ---------------------------------------------------------------------------
 # Quota — rate/spend limits consumed by the gateway (04 §3.1)
 # ---------------------------------------------------------------------------

@@ -405,6 +405,13 @@ admin_routers = [
         "prefix": "/billing/quotas",
         "tags": ["Billing"],
     },
+    # Read-only: a statement is produced by the invoicer from the ledger and is
+    # not editable afterwards, so there are no write endpoints here by design.
+    {
+        "router": billing.invoice_router,
+        "prefix": "/billing/invoices",
+        "tags": ["Billing"],
+    },
 ]
 
 for tr in tenant_routers:

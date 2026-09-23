@@ -26,6 +26,8 @@ from unittest.mock import patch
 from gpustack.api.exceptions import AlreadyExistsException, InvalidException
 from gpustack.schemas.api_keys import ApiKey
 from gpustack.schemas.billing import (
+    Invoice,
+    InvoiceStatus,
     SKU_TOKEN_COMPLETION,
     SKU_TOKEN_PROMPT,
     SKU_WALLET_TOPUP,
@@ -42,6 +44,8 @@ from gpustack.schemas.billing import (
 from gpustack.server import billing_settlement
 from gpustack.server.billing_rater import BillingMode
 from gpustack.server.billing_settlement import (
+    outstanding_charges,
+    outstanding_invoices,
     BillingSettler,
     credit_wallet,
     debit_wallet,
@@ -116,7 +120,16 @@ async def engine():
     async with engine.begin() as conn:
         # ApiKey is here because suspending a wallet propagates to the keys that
         # spend from it — settlement is not complete without that half.
-        for model in (Wallet, LedgerEntry, BillingSession, Redemption, ApiKey):
+        for model in (
+            Wallet,
+            LedgerEntry,
+            BillingSession,
+            Redemption,
+            ApiKey,
+            # Resuming a suspension now weighs unpaid invoices as well as
+            # realtime arrears, so the table has to exist for the check to run.
+            Invoice,
+        ):
             await conn.run_sync(model.__table__.create)
     yield engine
     await engine.dispose()
@@ -582,3 +595,83 @@ async def test_resume_refuses_while_the_balance_is_still_empty(session):
     assert await resume_wallet_if_funded(session, ORG) is False
     await session.commit()
     assert (await _wallets_of(session))[0].suspended is True
+
+
+@pytest.mark.asyncio
+async def test_an_unpaid_invoice_blocks_a_resume(engine, session_factory):
+    """Arrears are both halves, not just the realtime one.
+
+    Resource usage is collected by a statement (``billing_invoice``) rather than
+    as it accrues, so an org can owe a bill with nothing pending on its realtime
+    ledger. Resuming on the realtime figure alone would hand service back to an
+    org that has not paid its statement, and nothing would notice until the next
+    invoicing pass.
+    """
+    await _seed(
+        session_factory,
+        _wallet(balance="50", suspended=True),
+        Invoice(
+            id=1,
+            principal_id=ORG,
+            period_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            period_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            amount=Decimal("100.00"),
+            currency="CNY",
+            status=InvoiceStatus.ISSUED,
+            issued_at=NOW,
+            created_at=NOW,
+            updated_at=NOW,
+        ),
+    )
+
+    async with session_factory() as s:
+        assert await outstanding_invoices(s, ORG) == Decimal("100.00")
+        assert await outstanding_charges(s, ORG) == Decimal("100.00")
+        # 50 on the wallet, 100 owed: still in arrears.
+        assert await resume_wallet_if_funded(s, ORG) is False
+        await s.commit()
+
+    async with session_factory() as s:
+        wallet = (await s.exec(select(Wallet))).first()
+        assert wallet.suspended is True
+
+    # Once the statement is paid, the same balance resumes the org.
+    async with session_factory() as s:
+        invoice = (await s.exec(select(Invoice))).first()
+        invoice.status = InvoiceStatus.SETTLED
+        s.add(invoice)
+        await s.commit()
+
+    async with session_factory() as s:
+        assert await outstanding_invoices(s, ORG) == Decimal(0)
+        assert await resume_wallet_if_funded(s, ORG) is True
+        await s.commit()
+
+    assert (await _wallets(engine))[0].suspended is False
+
+
+@pytest.mark.asyncio
+async def test_a_settled_invoice_is_not_counted_as_owed(engine, session_factory):
+    """Only ISSUED statements are arrears; counting paid ones would keep an org
+    suspended forever, which is the failure a tenant escalates immediately."""
+    await _seed(
+        session_factory,
+        _wallet(balance="500"),
+        Invoice(
+            id=1,
+            principal_id=ORG,
+            period_start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            period_end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            amount=Decimal("100.00"),
+            currency="CNY",
+            status=InvoiceStatus.SETTLED,
+            issued_at=NOW,
+            settled_at=NOW,
+            created_at=NOW,
+            updated_at=NOW,
+        ),
+    )
+
+    async with session_factory() as s:
+        assert await outstanding_invoices(s, ORG) == Decimal(0)
+        assert await outstanding_charges(s, ORG) == Decimal(0)

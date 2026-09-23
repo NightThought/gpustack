@@ -54,6 +54,9 @@ from gpustack.schemas.billing import (
     UNIT_GPU_HOURS,
     UNIT_TOKENS,
     BillingSession,
+    Invoice,
+    InvoiceItem,
+    InvoiceStatus,
     LedgerDirection,
     LedgerEntry,
     LedgerStatus,
@@ -78,6 +81,7 @@ from gpustack.schemas.metered_usage import (
 )
 from gpustack.schemas.model_usage_details import ModelUsageDetails
 from gpustack.server import db as gpustack_db
+from gpustack.server.billing_invoice import BillingInvoicer, BillingPeriod
 from gpustack.server.billing_pricing import invalidate_price_cache
 from gpustack.server.billing_quota import check_quota, invalidate_quota_cache
 from gpustack.server.billing_rater import SKU_OUT_OF_SCOPE, BillingMode, BillingRater
@@ -290,6 +294,16 @@ async def cleanup(session: AsyncSession) -> None:
     )
     await session.exec(delete(Wallet).where(Wallet.principal_id.in_([ORG_A, ORG_B])))
     await session.exec(delete(Quota).where(Quota.id.in_(list(QUOTA_IDS))))
+    await session.exec(
+        delete(InvoiceItem).where(
+            InvoiceItem.invoice_id.in_(
+                select(Invoice.id).where(Invoice.principal_id.in_([ORG_A, ORG_B]))
+            )
+        )
+    )
+    await session.exec(
+        delete(Invoice).where(Invoice.principal_id.in_([ORG_A, ORG_B]))
+    )
     await session.exec(
         delete(LedgerEntry).where(
             LedgerEntry.source_table == "billing_redemption",
@@ -537,6 +551,7 @@ async def run(database_url: str) -> int:
 
     settle_problems = await phase_b_settlement(engine)
     quota_problems = await phase_c_quota(engine)
+    invoice_problems = await phase_d_invoicing(engine)
 
     print("\n" + bar)
     failed = (
@@ -545,19 +560,22 @@ async def run(database_url: str) -> int:
         or wallets != 0
         or settle_problems
         or quota_problems
+        or invoice_problems
     )
     if failed:
         print(
             f"演练失败：计价对账差异 {len(problems)} 处，幂等={idempotent}，"
-            f"结算差异 {len(settle_problems)} 处，配额差异 {len(quota_problems)} 处"
+            f"结算差异 {len(settle_problems)} 处，配额差异 {len(quota_problems)} 处，"
+            f"出账差异 {len(invoice_problems)} 处"
         )
-        for p in (problems + settle_problems + quota_problems)[:20]:
+        for p in (problems + settle_problems + quota_problems + invoice_problems)[:20]:
             print(f"  - {p}")
     else:
         print(
             f"演练通过：{len(actual)} 条 ledger 与独立重算逐条一致（0 差异），"
             f"幂等成立，影子阶段未碰钱包，enforce 结算与钱包变动逐笔对平，"
-            f"配额计数器与 ledger 重算一致且超限即 429"
+            f"配额计数器与 ledger 重算一致且超限即 429，"
+            f"账期出账金额/行合计/钱包扣减三方对平且重跑无副作用"
         )
     print(bar)
 
@@ -920,6 +938,159 @@ async def phase_c_quota(engine) -> List[str]:
         f"上限提高后同一调用方放行 = {admitted}"
     )
     return problems
+
+
+async def phase_d_invoicing(engine) -> List[str]:
+    """Close the period and collect the deferred half, against its own oracle.
+
+    Phase B settled the realtime (token) charges and left the resource charges
+    pending, which is the state invoicing exists for. ORG_A can cover its
+    statement; ORG_B — still holding the 0.05 it was given in phase B — cannot,
+    so the same pass has to show both outcomes: one statement paid and one issued
+    unpaid with the org suspended, and neither double-charged on a re-run.
+
+    The pass is given a ``now`` in the following month, because only closed
+    periods are invoiced and the drill's usage is in the current one.
+    """
+    print("\n[14] 阶段 D：账期出账（Invoice）")
+    problems: List[str] = []
+    closed_at = NOW + timedelta(days=40)
+
+    # The oracle: what each org owes on deferred charges, summed here.
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        rows = (
+            await session.exec(
+                select(
+                    LedgerEntry.principal_id,
+                    func.count(LedgerEntry.id),
+                    func.sum(LedgerEntry.amount),
+                ).where(
+                    LedgerEntry.deleted_at.is_(None),
+                    LedgerEntry.settle_mode == SettleMode.DEFERRED.value,
+                    LedgerEntry.status == LedgerStatus.PENDING.value,
+                    LedgerEntry.invoice_id.is_(None),
+                    LedgerEntry.principal_id.in_([ORG_A, ORG_B]),
+                ).group_by(LedgerEntry.principal_id)
+            )
+        ).all()
+    expected = {
+        int(row[0]): (int(row[1]), Decimal(row[2] or 0)) for row in rows
+    }
+    balances_before = await _wallet_balances(engine)
+
+    invoicer = BillingInvoicer(mode=BillingMode.ENFORCE, period=BillingPeriod.MONTHLY)
+    report = await invoicer.invoice_once(now=closed_at)
+    print(f"      {report.summary()}")
+
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        invoices = {
+            i.principal_id: i
+            for i in (
+                await session.exec(
+                    select(Invoice).where(Invoice.principal_id.in_([ORG_A, ORG_B]))
+                )
+            ).all()
+        }
+        items = list((await session.exec(select(InvoiceItem))).all())
+        entries = {
+            e.id: e
+            for e in (
+                await session.exec(
+                    select(LedgerEntry).where(
+                        LedgerEntry.settle_mode == SettleMode.DEFERRED.value,
+                        LedgerEntry.deleted_at.is_(None),
+                    )
+                )
+            ).all()
+        }
+    balances_after = await _wallet_balances(engine)
+
+    if set(invoices) != set(expected):
+        problems.append(
+            f"出账主体不符：期望 {sorted(expected)} 实际 {sorted(invoices)}"
+        )
+
+    for principal_id, (count, total) in expected.items():
+        invoice = invoices.get(principal_id)
+        if invoice is None:
+            continue
+        if Decimal(invoice.amount) != total:
+            problems.append(
+                f"{principal_id} 账单金额 {fmt(invoice.amount)} ≠ ledger 重算 {fmt(total)}"
+            )
+        line_total = sum(
+            (Decimal(i.amount) for i in items if i.invoice_id == invoice.id), Decimal(0)
+        )
+        if line_total != Decimal(invoice.amount):
+            problems.append(
+                f"{principal_id} 账单行合计 {fmt(line_total)} ≠ 账单总额 "
+                f"{fmt(invoice.amount)}"
+            )
+        claimed = [e for e in entries.values() if e.invoice_id == invoice.id]
+        if len(claimed) != count:
+            problems.append(
+                f"{principal_id} 账单认领 {len(claimed)} 条，期望 {count} 条"
+            )
+
+        funded = balances_before.get(principal_id, Decimal(0)) >= total
+        if funded:
+            if invoice.status != InvoiceStatus.SETTLED.value:
+                problems.append(f"{principal_id} 余额充足但账单未结清：{invoice.status}")
+            took = balances_before[principal_id] - balances_after[principal_id]
+            if took != total:
+                problems.append(
+                    f"{principal_id} 钱包减少 {fmt(took)} ≠ 账单金额 {fmt(total)}"
+                )
+            if any(e.status != LedgerStatus.SETTLED.value for e in claimed):
+                problems.append(f"{principal_id} 已付账单仍有未结算条目")
+        else:
+            if invoice.status != InvoiceStatus.ISSUED.value:
+                problems.append(
+                    f"{principal_id} 余额不足，账单应为 issued 实际 {invoice.status}"
+                )
+            if not invoice.unpaid_reason:
+                problems.append(f"{principal_id} 未付账单缺少 unpaid_reason")
+            took = balances_before[principal_id] - balances_after[principal_id]
+            if took != Decimal(0):
+                problems.append(f"{principal_id} 未付账单却被扣了 {fmt(took)}")
+            if any(e.status != LedgerStatus.PENDING.value for e in claimed):
+                problems.append(f"{principal_id} 未付账单的条目不应被标记结算")
+
+    # A second pass must find nothing to do and take nothing more.
+    second = await invoicer.invoice_once(now=closed_at)
+    balances_again = await _wallet_balances(engine)
+    if second.invoices_issued or second.amount_collected:
+        problems.append(
+            f"重跑产生了新账单或新扣款：issued={second.invoices_issued}, "
+            f"collected={fmt(second.amount_collected)}"
+        )
+    if balances_again != balances_after:
+        problems.append("重跑改变了钱包余额")
+
+    print("[15] 出账对账：")
+    for principal_id, (count, total) in sorted(expected.items()):
+        invoice = invoices.get(principal_id)
+        print(
+            f"      {principal_id}：{count} 条 / {fmt(total)} CNY → 账单 "
+            f"{invoice.status if invoice else '未生成'}，余额 "
+            f"{fmt(balances_before.get(principal_id, Decimal(0)))} → "
+            f"{fmt(balances_after.get(principal_id, Decimal(0)))}，"
+            f"重跑无变化={balances_again.get(principal_id) == balances_after.get(principal_id)}"
+        )
+    print(f"      账单行合计 {len(items)} 行，幂等={second.invoices_issued == 0}")
+    return problems
+
+
+async def _wallet_balances(engine) -> dict:
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        rows = (
+            await session.exec(
+                select(Wallet.principal_id, Wallet.balance).where(
+                    Wallet.principal_id.in_([ORG_A, ORG_B])
+                )
+            )
+        ).all()
+    return {int(row[0]): Decimal(row[1] or 0) for row in rows}
 
 
 def main() -> int:

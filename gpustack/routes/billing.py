@@ -25,8 +25,9 @@ from enum import Enum
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict
+from sqlmodel import select
 
 from gpustack.api.exceptions import (
     InternalServerErrorException,
@@ -34,6 +35,13 @@ from gpustack.api.exceptions import (
     NotFoundException,
 )
 from gpustack.schemas.billing import (
+    Invoice,
+    InvoiceDetail,
+    InvoiceItem,
+    InvoiceItemPublic,
+    InvoiceListParams,
+    InvoicesPublic,
+    LedgerEntry,
     PriceBookEntriesPublic,
     PriceBookEntry,
     PriceBookEntryCreate,
@@ -65,6 +73,9 @@ from gpustack.server.billing_quota import (
 )
 from gpustack.server.db import async_session
 from gpustack.server.deps import SessionDep
+from gpustack.utils.export_delivery import XLSX_MEDIA_TYPE
+from gpustack.utils.export_limits import attachment_headers
+from gpustack.utils.tabular_export import build_xlsx
 
 logger = logging.getLogger(__name__)
 
@@ -460,4 +471,317 @@ async def _one_quota_or_404(session, id: int) -> Quota:
     existing = await Quota.one_by_id(session, id)
     if not existing or existing.deleted_at is not None:
         raise NotFoundException(message=f"quota {id} not found")
+    return existing
+
+
+# ---------------------------------------------------------------------------
+# Invoices (WP6) — read-only statements over the deferred ledger
+# ---------------------------------------------------------------------------
+
+invoice_router = APIRouter()
+
+# What an entry on a statement has to carry for a tenant to recognise it. The
+# point of ``request_id`` and the source columns is that a disputed line can be
+# followed back to the row the rater read, which is the only way "why was I
+# charged this" has an answer that is not "trust us".
+INVOICE_ENTRY_COLUMNS = [
+    "ledger_id",
+    "request_id",
+    "occurred_at",
+    "sku",
+    "model_name",
+    "resource_name",
+    "quantity",
+    "unit",
+    "unit_price",
+    "amount",
+    "currency",
+    "settle_mode",
+    "status",
+    "source_table",
+    "source_id",
+    "user_name",
+    "api_key_name",
+]
+
+INVOICE_ITEM_COLUMNS = [
+    "sku",
+    "model_name",
+    "quantity",
+    "unit",
+    "amount",
+    "entry_count",
+]
+
+
+class InvoiceEntryPublic(BaseModel):
+    """One ledger entry behind a statement line."""
+
+    id: int
+    request_id: Optional[str] = None
+    occurred_at: datetime
+    sku: str
+    model_name: Optional[str] = None
+    resource_name: Optional[str] = None
+    quantity: Decimal
+    unit: str
+    unit_price: Decimal
+    amount: Decimal
+    currency: str
+    settle_mode: str
+    status: str
+    source_table: str
+    source_id: int
+    user_id: Optional[int] = None
+    user_name: Optional[str] = None
+    api_key_id: Optional[int] = None
+    api_key_name: Optional[str] = None
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class InvoiceEntriesPublic(BaseModel):
+    items: List[InvoiceEntryPublic] = []
+    total: int = 0
+    # The statement's own total, so a page of entries can be read against it
+    # without a second call — and so a mismatch is visible at a glance.
+    invoice_amount: Decimal = Decimal(0)
+
+    model_config = ConfigDict(protected_namespaces=())
+
+
+@invoice_router.get("", response_model=InvoicesPublic)
+async def list_invoices(
+    params: InvoiceListParams = Depends(),
+    principal_id: Optional[int] = None,
+    status: Optional[str] = None,
+    period_start: Optional[datetime] = None,
+    period_end: Optional[datetime] = None,
+    search: Optional[str] = None,
+):
+    """Statements, newest period first.
+
+    ``period_start`` / ``period_end`` filter on overlap with the requested range,
+    so a month's worth of statements is one call rather than one per org.
+    """
+    fuzzy_fields = {"principal_name": search} if search else {}
+    fields = {"deleted_at": None}
+    if principal_id is not None:
+        fields["principal_id"] = principal_id
+    if status:
+        fields["status"] = status
+
+    extra_conditions = []
+    if period_start is not None:
+        extra_conditions.append(Invoice.period_end > period_start)
+    if period_end is not None:
+        extra_conditions.append(Invoice.period_start < period_end)
+
+    if params.watch:
+        return StreamingResponse(
+            Invoice.streaming(fields=fields, fuzzy_fields=fuzzy_fields),
+            media_type="text/event-stream",
+        )
+
+    async with async_session() as session:
+        return await Invoice.paginated_by_query(
+            session=session,
+            fields=fields,
+            fuzzy_fields=fuzzy_fields,
+            extra_conditions=extra_conditions or None,
+            page=params.page,
+            per_page=params.perPage,
+            order_by=params.sort_by,
+        )
+
+
+@invoice_router.get("/{id}", response_model=InvoiceDetail)
+async def get_invoice(session: SessionDep, id: int):
+    invoice = await _one_invoice_or_404(session, id)
+    items = (
+        await session.exec(
+            select(InvoiceItem)
+            .where(InvoiceItem.invoice_id == id, InvoiceItem.deleted_at.is_(None))
+            .order_by(InvoiceItem.sku, InvoiceItem.model_name)
+        )
+    ).all()
+    detail = InvoiceDetail.model_validate(invoice, from_attributes=True)
+    detail.items = [
+        InvoiceItemPublic.model_validate(item, from_attributes=True) for item in items
+    ]
+    return detail
+
+
+@invoice_router.get("/{id}/entries", response_model=InvoiceEntriesPublic)
+async def get_invoice_entries(
+    session: SessionDep, id: int, page: int = 1, per_page: int = 100
+):
+    """The ledger rows a statement was built from, ``request_id`` included."""
+    invoice = await _one_invoice_or_404(session, id)
+    statement = (
+        select(LedgerEntry)
+        .where(
+            LedgerEntry.invoice_id == id,
+            LedgerEntry.deleted_at.is_(None),
+        )
+        .order_by(LedgerEntry.occurred_at, LedgerEntry.id)
+    )
+    total = len((await session.exec(select(LedgerEntry.id).where(
+        LedgerEntry.invoice_id == id, LedgerEntry.deleted_at.is_(None)
+    ))).all())
+    rows = (
+        await session.exec(
+            statement.offset(max(0, (page - 1) * per_page)).limit(per_page)
+        )
+    ).all()
+    return InvoiceEntriesPublic(
+        items=[
+            InvoiceEntryPublic.model_validate(row, from_attributes=True) for row in rows
+        ],
+        total=total,
+        invoice_amount=Decimal(invoice.amount or 0),
+    )
+
+
+@invoice_router.get("/{id}/export")
+async def export_invoice(session: SessionDep, id: int):
+    """The statement as a workbook: one sheet of lines, one of entries.
+
+    Two sheets rather than one because they answer different questions — the
+    lines are what the total is made of, the entries are what a disputed line is
+    made of — and flattening them would either repeat the entry detail on every
+    line or lose the ``request_id`` that makes a charge traceable.
+    """
+    invoice = await _one_invoice_or_404(session, id)
+    items = (
+        await session.exec(
+            select(InvoiceItem)
+            .where(InvoiceItem.invoice_id == id, InvoiceItem.deleted_at.is_(None))
+            .order_by(InvoiceItem.sku, InvoiceItem.model_name)
+        )
+    ).all()
+    entries = (
+        await session.exec(
+            select(LedgerEntry)
+            .where(LedgerEntry.invoice_id == id, LedgerEntry.deleted_at.is_(None))
+            .order_by(LedgerEntry.occurred_at, LedgerEntry.id)
+        )
+    ).all()
+
+    stamp = f"{invoice.period_start:%Y%m%d}-{invoice.period_end:%Y%m%d}"
+    payload = await build_xlsx(
+        [
+            (
+                "Invoice",
+                [
+                    "invoice_id",
+                    "principal_id",
+                    "principal_name",
+                    "period_start",
+                    "period_end",
+                    "amount",
+                    "currency",
+                    "status",
+                    "issued_at",
+                    "settled_at",
+                    "unpaid_reason",
+                ],
+                _one_row(
+                    [
+                        invoice.id,
+                        invoice.principal_id,
+                        invoice.principal_name,
+                        _naive(invoice.period_start),
+                        _naive(invoice.period_end),
+                        float(invoice.amount or 0),
+                        invoice.currency,
+                        _value(invoice.status),
+                        _naive(invoice.issued_at),
+                        _naive(invoice.settled_at),
+                        invoice.unpaid_reason,
+                    ]
+                ),
+            ),
+            (
+                "Items",
+                INVOICE_ITEM_COLUMNS,
+                _rows(
+                    [
+                        item.sku,
+                        item.model_name,
+                        float(item.quantity or 0),
+                        item.unit,
+                        float(item.amount or 0),
+                        item.entry_count,
+                    ]
+                    for item in items
+                ),
+            ),
+            (
+                "Entries",
+                INVOICE_ENTRY_COLUMNS,
+                _rows(
+                    [
+                        entry.id,
+                        entry.request_id,
+                        _naive(entry.occurred_at),
+                        entry.sku,
+                        entry.model_name,
+                        entry.resource_name,
+                        float(entry.quantity or 0),
+                        entry.unit,
+                        float(entry.unit_price or 0),
+                        float(entry.amount or 0),
+                        entry.currency,
+                        _value(entry.settle_mode),
+                        _value(entry.status),
+                        entry.source_table,
+                        entry.source_id,
+                        entry.user_name,
+                        entry.api_key_name,
+                    ]
+                    for entry in entries
+                ),
+            ),
+        ]
+    )
+    return Response(
+        content=payload,
+        media_type=XLSX_MEDIA_TYPE,
+        headers=attachment_headers(
+            f"invoice-{invoice.principal_id}-{stamp}.xlsx"
+        ),
+    )
+
+
+def _value(field):
+    """Enum members render as their value; everything else passes through."""
+    return field.value if isinstance(field, Enum) else field
+
+
+def _naive(moment: Optional[datetime]) -> Optional[datetime]:
+    """Drop the offset before a spreadsheet sees it.
+
+    xlsxwriter is configured with ``remove_timezone`` as a backstop, but an
+    instant written as UTC-naive is the one an operator compares against the
+    ledger's own ``occurred_at``, which is stored naive.
+    """
+    if moment is None or moment.tzinfo is None:
+        return moment
+    return moment.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+async def _one_row(row):
+    yield row
+
+
+async def _rows(iterator):
+    for row in iterator:
+        yield row
+
+
+async def _one_invoice_or_404(session, id: int) -> Invoice:
+    existing = await Invoice.one_by_id(session, id)
+    if not existing or existing.deleted_at is not None:
+        raise NotFoundException(message=f"invoice {id} not found")
     return existing

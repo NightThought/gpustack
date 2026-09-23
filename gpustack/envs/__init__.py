@@ -433,6 +433,32 @@ BILLING_RATE_INTERVAL_SECONDS = int(
 # backlog (a rater that was off for a week) drains in chunks instead of one
 # enormous commit.
 BILLING_RATE_BATCH_SIZE = int(os.getenv("GPUSTACK_BILLING_RATE_BATCH_SIZE", 500))
+# Deferred (resource) charges are collected by an invoice rather than as they
+# accrue — that is the "resource side bills on a period" half of the hybrid
+# decision, the token side being settled in real time. Two knobs:
+#
+# ``GPUSTACK_BILLING_INVOICE_PERIOD`` is the length of a billing period,
+# ``daily`` or ``monthly``. Monthly is the default because resource consumption
+# is what an operator reconciles against a capacity plan, and a daily invoice
+# for a cluster that never changes shape is 30 identical statements.
+#
+# Only *closed* periods are ever invoiced, so the period length also sets the
+# worst-case delay before a resource charge is collected. An in-flight period is
+# skipped on purpose: issuing it would bill partial usage and, being idempotent
+# per period, never bill the rest.
+BILLING_INVOICE_PERIOD = os.getenv("GPUSTACK_BILLING_INVOICE_PERIOD", "monthly").strip().lower()
+# When the invoicer runs, as a crontab expression in UTC. The default is 03:00
+# on the first of the month, which for a monthly period is "as soon as the
+# period has closed"; a daily period wants ``0 1 * * *`` instead. Invalid values
+# are rejected at startup rather than at the first fire.
+BILLING_INVOICE_CRON = os.getenv("GPUSTACK_BILLING_INVOICE_CRON", "0 3 1 * *")
+# How many closed periods back to look for usage that has not been invoiced
+# yet. Bounds the work of a pass after the invoicer has been down; usage older
+# than the window is not lost, it is carried into the oldest period the pass
+# does invoice.
+BILLING_INVOICE_LOOKBACK_PERIODS = int(
+    os.getenv("GPUSTACK_BILLING_INVOICE_LOOKBACK_PERIODS", 3)
+)
 
 # ``resource_events`` hot/cold archival — same shape as the model_usage_details
 # pair above. The events table grows much slower (lifecycle events, not per

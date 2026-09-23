@@ -47,6 +47,8 @@ from gpustack.schemas.billing import (
     SKU_WALLET_TOPUP,
     UNIT_CURRENCY,
     BillingSession,
+    Invoice,
+    InvoiceStatus,
     LedgerDirection,
     LedgerEntry,
     LedgerStatus,
@@ -194,6 +196,38 @@ async def outstanding_realtime_charges(
     return sum((Decimal(r[0] if isinstance(r, tuple) else r) for r in rows), Decimal(0))
 
 
+async def outstanding_invoices(session: AsyncSession, principal_id: int) -> Decimal:
+    """What one principal owes on issued-but-unpaid invoices.
+
+    The deferred half of the hybrid model: resource usage is collected by an
+    invoice (``server.billing_invoice``) rather than as it accrues, so an org can
+    owe a statement with no realtime charge pending at all.
+    """
+    rows = (
+        await session.exec(
+            select(Invoice.amount).where(
+                Invoice.principal_id == principal_id,
+                Invoice.status == InvoiceStatus.ISSUED.value,
+                Invoice.deleted_at.is_(None),
+            )
+        )
+    ).all()
+    return sum((Decimal(r[0] if isinstance(r, tuple) else r) for r in rows), Decimal(0))
+
+
+async def outstanding_charges(session: AsyncSession, principal_id: int) -> Decimal:
+    """Everything one principal owes and has not paid.
+
+    Both halves, because a suspension decision made against only one of them is
+    wrong in the direction that costs money: an org whose realtime arrears are
+    cleared but whose invoice is unpaid would be resumed, and would keep
+    consuming until the next invoicing pass noticed.
+    """
+    return await outstanding_realtime_charges(
+        session, principal_id
+    ) + await outstanding_invoices(session, principal_id)
+
+
 async def resume_wallet_if_funded(
     session: AsyncSession, principal_id: int, *, commit: bool = False
 ) -> bool:
@@ -202,16 +236,18 @@ async def resume_wallet_if_funded(
     Two conditions, and both matter. ``balance > 0``: a prepaid wallet with
     nothing in it gets no service, owed or not. ``balance >= outstanding``: a
     top-up that covers part of the arrears must not resume the tenant, or they
-    would keep consuming while the rest waits. Called after a top-up and after a
-    settlement sweep, so an org is never left suspended once it has actually
-    paid — the failure mode a tenant notices first.
+    would keep consuming while the rest waits. Outstanding means both halves —
+    realtime charges and unpaid invoices — since WP6: an org that owes a
+    statement is in arrears whatever its realtime ledger says. Called after a
+    top-up and after a settlement sweep, so an org is never left suspended once
+    it has actually paid — the failure mode a tenant notices first.
     """
     wallet = await get_or_create_wallet(session, principal_id)
     if not wallet.suspended:
         return True
     if wallet.balance <= 0:
         return False
-    if wallet.balance < await outstanding_realtime_charges(session, principal_id):
+    if wallet.balance < await outstanding_charges(session, principal_id):
         return False
     wallet.suspended = False
     wallet.suspended_at = None
