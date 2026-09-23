@@ -77,6 +77,7 @@ from gpustack.server.billing_pricing import (
     invalidate_price_cache,
     resolve_price,
 )
+from gpustack.server.billing_quota import apply_usage, invalidate_quota_cache
 from gpustack.server.db import async_session
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,8 @@ class RatingReport:
     resource_entries: int = 0
     resource_unpriced: int = 0
     promoted: int = 0  # VOID entries turned into real charges
+    # Quota counters advanced this sweep (0 when no ceilings are configured).
+    quotas_advanced: int = 0
     duration_ms: int = 0
     unpriced_reasons: List[str] = field(default_factory=list)
 
@@ -146,7 +149,8 @@ class RatingReport:
             f"{self.token_entries} token entries from {self.token_sources} requests, "
             f"{self.resource_entries} resource entries from "
             f"{self.resource_sources} buckets, {self.promoted} promoted, "
-            f"{self.token_unpriced + self.resource_unpriced} unpriced"
+            f"{self.token_unpriced + self.resource_unpriced} unpriced, "
+            f"{self.quotas_advanced} quota counters advanced"
         )
 
 
@@ -261,10 +265,21 @@ class BillingRater:
         # also covers prices written through another server instance, whose own
         # cache invalidation cannot reach this process.
         invalidate_price_cache()
+        # Same reasoning for the quota table: the leader must see a ceiling an
+        # operator added on another instance this tick, or its counter stays
+        # unadvanced and the gate — which reads that counter — over-admits for
+        # the rest of the TTL.
+        invalidate_quota_cache()
 
+        written: List[LedgerEntry] = []
         async with async_session() as session:
-            await self._rate_token_details(session, report)
-            await self._rate_resource_buckets(session, report)
+            await self._rate_token_details(session, report, written)
+            await self._rate_resource_buckets(session, report, written)
+            # Quota counters advance in the same transaction as the ledger rows
+            # they count. A ceiling that moved without its usage would not be
+            # reproducible from the ledger, and the ledger is what a rolled or
+            # newly created window is recomputed from.
+            report.quotas_advanced = await apply_usage(session, written)
             await session.commit()
 
         report.duration_ms = int((time.monotonic() - started) * 1000)
@@ -275,7 +290,10 @@ class BillingRater:
     # ------------------------------------------------------------------
 
     async def _rate_token_details(
-        self, session: AsyncSession, report: RatingReport
+        self,
+        session: AsyncSession,
+        report: RatingReport,
+        written: Optional[List[LedgerEntry]] = None,
     ) -> None:
         details = await self._unrated(session, ModelUsageDetails, SOURCE_USAGE_DETAILS)
         if not details:
@@ -308,7 +326,7 @@ class BillingRater:
                     request_id=detail.request_id,
                 ),
             )
-            self._stage(session, entries, existing, report)
+            self._stage(session, entries, existing, report, written)
 
     @staticmethod
     def _token_quantities(detail: ModelUsageDetails) -> List[Tuple[str, Decimal]]:
@@ -344,7 +362,10 @@ class BillingRater:
     # ------------------------------------------------------------------
 
     async def _rate_resource_buckets(
-        self, session: AsyncSession, report: RatingReport
+        self,
+        session: AsyncSession,
+        report: RatingReport,
+        written: Optional[List[LedgerEntry]] = None,
     ) -> None:
         buckets = await self._unrated(
             session, MeteredUsage, SOURCE_METERED_USAGE, sealed_only=True
@@ -393,7 +414,7 @@ class BillingRater:
                     attribution=self._resource_attribution(bucket),
                     unpriced_counter="resource",
                 )
-            self._stage(session, entries, existing, report)
+            self._stage(session, entries, existing, report, written)
 
     @staticmethod
     def _resource_sku_quantity(
@@ -644,12 +665,22 @@ class BillingRater:
         entries: List[LedgerEntry],
         existing: Dict[Tuple[int, str], LedgerEntry],
         report: RatingReport,
+        written: Optional[List[LedgerEntry]] = None,
     ) -> None:
-        """Add new entries; promote VOID ones whose price has since appeared."""
+        """Add new entries; promote VOID ones whose price has since appeared.
+
+        ``written`` collects the rows this call actually changed — inserted, or
+        promoted in place — which is what quota accounting consumes. Rows left
+        alone must not appear in it: advancing a ceiling twice for one request
+        is a limit that bites early, and the rater re-reads the same sources on
+        every sweep.
+        """
         for entry in entries:
             prior = existing.get((entry.source_id, entry.sku))
             if prior is None:
                 session.add(entry)
+                if written is not None:
+                    written.append(entry)
                 continue
             if prior.status == LedgerStatus.VOID.value and entry.status != (
                 LedgerStatus.VOID
@@ -666,6 +697,11 @@ class BillingRater:
                 prior.price_book_version = entry.price_book_version
                 prior.principal_id = entry.principal_id or prior.principal_id
                 session.add(prior)
+                if written is not None:
+                    # The promoted row, not the freshly built one: it carries the
+                    # id and the attribution (user, api key, model) the counters
+                    # are keyed by.
+                    written.append(prior)
                 report.promoted += 1
             # Otherwise (already a real charge, or still unpriced) leave it alone:
             # re-rating settled history is how a bill stops being reproducible.

@@ -40,6 +40,7 @@ from gpustack.routes.model_routes import (
 )
 from gpustack.server.db import async_session
 from gpustack.server.billing_enforcement import assert_billing_active
+from gpustack.server.billing_quota import check_quota
 from gpustack.server.deps import SessionDep, CurrentUserDep, TenantContextDep
 from gpustack.server.services import (
     ModelInstanceService,
@@ -216,6 +217,18 @@ async def proxy_request_by_model(
             session,
             api_key=getattr(request.state, "api_key", None),
             user=user,
+            model_name=model_name,
+            openai_shaped=True,
+        )
+        # Quota ceilings, checked beside the suspension so both request paths
+        # limit a subject identically. 429 here, 402 above, and the difference is
+        # the remediation: wait for the window, or top up.
+        _api_key = getattr(request.state, "api_key", None)
+        await check_quota(
+            session,
+            api_key_id=getattr(_api_key, "id", None),
+            user_id=user.id,
+            principal_id=getattr(_api_key, "owner_principal_id", None) or user.id,
             model_name=model_name,
             openai_shaped=True,
         )

@@ -65,16 +65,30 @@ def _cfg(namespace="default", gateway_namespace="higress-system"):
 
 
 class _FakeSession:
-    """Returns a fixed row set for whatever is asked, keeping the statement so
-    a test can assert on the filtering the query itself does."""
+    """Returns a fixed row set per query, keeping the statement so a test can
+    assert on the filtering the query itself does.
 
-    def __init__(self, rows):
+    Two queries run in a pass now: the quota subjects first, then the keys. They
+    return differently shaped rows, so the answer is picked by what was asked
+    rather than served identically -- a fake that handed key rows to the quota
+    query would exercise the reconciler against an input it cannot receive.
+    """
+
+    def __init__(self, rows, quota_rows=()):
         self._rows = rows
+        self._quota_rows = list(quota_rows)
         self.statement = None
 
     async def exec(self, statement):
         self.statement = statement
-        return SimpleNamespace(all=lambda: self._rows)
+        return SimpleNamespace(all=lambda: self._rows_for(statement))
+
+    def _rows_for(self, statement):
+        descriptions = getattr(statement, "column_descriptions", None) or []
+        entity = descriptions[0].get("entity") if descriptions else None
+        if getattr(entity, "__tablename__", None) == "billing_quota":
+            return self._quota_rows
+        return self._rows
 
 
 # As the server stores it, and as gateway_digest() renders it for the config.
@@ -100,6 +114,9 @@ def _key(**overrides):
         # earns ``unrestricted``.
         "scope": [PermissionScope.ALL],
         "allowed_model_names": None,
+        # No owning Org by default, so an ORG-scoped ceiling matches nothing
+        # unless a test says otherwise.
+        "owner_principal_id": None,
         "principal_kind": PrincipalType.USER,
     }
     fields.update(overrides)
@@ -129,6 +146,9 @@ def _row(**overrides):
         k.is_custom,
         k.scope,
         k.allowed_model_names,
+        # Selected for the quota test, not for the entry: an ORG-scoped ceiling
+        # binds a key through its owner.
+        k.owner_principal_id,
         k.principal_kind,
     )
 

@@ -98,6 +98,13 @@ InvalidException = http_exception_factory(
 PaymentRequiredException = http_exception_factory(
     status.HTTP_402_PAYMENT_REQUIRED, "PaymentRequired", "Payment required"
 )
+# A quota ceiling, as opposed to 402 above: the account has money, this window's
+# allowance is spent. The distinction is what tells a client whether to retry
+# after the window rolls over (429) or to top up (402) -- conflating them makes
+# one of the two remediations unreachable.
+TooManyRequestsException = http_exception_factory(
+    status.HTTP_429_TOO_MANY_REQUESTS, "TooManyRequests", "Too many requests"
+)
 BadRequestException = http_exception_factory(
     status.HTTP_400_BAD_REQUEST, "BadRequest", "Bad request"
 )

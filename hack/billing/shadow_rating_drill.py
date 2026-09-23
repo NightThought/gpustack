@@ -44,6 +44,7 @@ from sqlalchemy import delete, func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from gpustack.api.exceptions import TooManyRequestsException
 from gpustack.schemas.billing import (
     SKU_STORAGE_GB_HOUR,
     SKU_TOKEN_CACHED,
@@ -53,9 +54,15 @@ from gpustack.schemas.billing import (
     UNIT_GPU_HOURS,
     UNIT_TOKENS,
     BillingSession,
+    LedgerDirection,
     LedgerEntry,
     LedgerStatus,
     PriceBookEntry,
+    Quota,
+    QuotaLimitType,
+    QuotaScope,
+    Redemption,
+    RedemptionStatus,
     SettleMode,
     Wallet,
 )
@@ -72,8 +79,9 @@ from gpustack.schemas.metered_usage import (
 from gpustack.schemas.model_usage_details import ModelUsageDetails
 from gpustack.server import db as gpustack_db
 from gpustack.server.billing_pricing import invalidate_price_cache
+from gpustack.server.billing_quota import check_quota, invalidate_quota_cache
 from gpustack.server.billing_rater import SKU_OUT_OF_SCOPE, BillingMode, BillingRater
-from gpustack.server.billing_settlement import BillingSettler
+from gpustack.server.billing_settlement import BillingSettler, redeem_code
 from gpustack.server.init_db import init_db_engine
 
 DEFAULT_DATABASE_URL = "postgresql://root@localhost:5432/gpustack"
@@ -86,6 +94,18 @@ HOUR_AGO = (NOW - timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
 ORG_A, ORG_B = 990101, 990102
 REQUEST_IDS = range(9901001, 9901100)
 BUCKET_IDS = range(9902001, 9902100)
+QUOTA_IDS = range(9903001, 9903010)
+
+# Phase C's own rows: the key and user every seeded request is attributed to, a
+# fresh request for the sweep to write, and a model nothing uses (so its ceiling
+# has to stay at zero).
+DRILL_KEY_ID, DRILL_USER_ID = 3, 7
+PHASE_C_REQUEST_ID = 9901099
+PHASE_C_MODEL = "Qwen3-8B"
+UNUSED_MODEL = "Drill-Unused-Model"
+QUOTA_KEY_ID, QUOTA_ORG_ID, QUOTA_MODEL_ID = 9903001, 9903002, 9903003
+REDEMPTION_ID = 9904001
+DRILL_CODE = "DRILL-PHASE-C"
 
 MONEY = Decimal(1).scaleb(-8)
 
@@ -269,6 +289,14 @@ async def cleanup(session: AsyncSession) -> None:
         )
     )
     await session.exec(delete(Wallet).where(Wallet.principal_id.in_([ORG_A, ORG_B])))
+    await session.exec(delete(Quota).where(Quota.id.in_(list(QUOTA_IDS))))
+    await session.exec(
+        delete(LedgerEntry).where(
+            LedgerEntry.source_table == "billing_redemption",
+            LedgerEntry.source_id == REDEMPTION_ID,
+        )
+    )
+    await session.exec(delete(Redemption).where(Redemption.id == REDEMPTION_ID))
     await session.exec(
         delete(ModelUsageDetails).where(ModelUsageDetails.id.in_(list(REQUEST_IDS)))
     )
@@ -508,20 +536,28 @@ async def run(database_url: str) -> int:
     )
 
     settle_problems = await phase_b_settlement(engine)
+    quota_problems = await phase_c_quota(engine)
 
     print("\n" + bar)
-    failed = problems or not idempotent or wallets != 0 or settle_problems
+    failed = (
+        problems
+        or not idempotent
+        or wallets != 0
+        or settle_problems
+        or quota_problems
+    )
     if failed:
         print(
             f"演练失败：计价对账差异 {len(problems)} 处，幂等={idempotent}，"
-            f"结算差异 {len(settle_problems)} 处"
+            f"结算差异 {len(settle_problems)} 处，配额差异 {len(quota_problems)} 处"
         )
-        for p in (problems + settle_problems)[:20]:
+        for p in (problems + settle_problems + quota_problems)[:20]:
             print(f"  - {p}")
     else:
         print(
             f"演练通过：{len(actual)} 条 ledger 与独立重算逐条一致（0 差异），"
-            f"幂等成立，影子阶段未碰钱包，enforce 结算与钱包变动逐笔对平"
+            f"幂等成立，影子阶段未碰钱包，enforce 结算与钱包变动逐笔对平，"
+            f"配额计数器与 ledger 重算一致且超限即 429"
         )
     print(bar)
 
@@ -657,6 +693,231 @@ async def phase_b_settlement(engine) -> List[str]:
     print(
         f"      资金守恒：钱包减少 {fmt(wallet_delta)} == ledger 已结算 "
         f"{fmt(total_settled)} → {wallet_delta == total_settled}"
+    )
+    return problems
+
+
+async def phase_c_quota(engine) -> List[str]:
+    """Exercise the quota gate against real rows, with its own oracle.
+
+    Three ceilings, chosen to fail in different ways if the accounting is wrong:
+    a key-scoped daily token cap of 1 (which today's rated usage must exhaust),
+    an org-scoped monthly spend cap that must count DEBIT rows only — phase B
+    left a CREDIT redemption row for this org, and a top-up that raised a spend
+    ceiling would be an org buying itself allowance it was never granted — and a
+    cap on a model nothing used, which must stay at zero and admit.
+
+    The expected counters are summed here with their own SQL rather than read
+    back through ``billing_quota``, which is the only thing that makes the
+    comparison a check.
+    """
+    print("\n[12] 阶段 C：配额预检（QuotaGate）")
+    problems: List[str] = []
+
+    # A real top-up first, so the "a CREDIT row must not raise a spend ceiling"
+    # check has something to exclude. Phase B funds its wallets by writing
+    # balances directly, which produces no ledger row at all.
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        session.add(
+            Redemption(
+                id=REDEMPTION_ID,
+                code=DRILL_CODE,
+                amount=Decimal("25"),
+                currency="CNY",
+                status=RedemptionStatus.ENABLED,
+                batch="drill-phase-c",
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.commit()
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        await redeem_code(session, code=DRILL_CODE, principal_id=ORG_A)
+
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        # window_start left NULL on purpose: the counter has to be computed from
+        # the ledger on first use, not started at zero and slowly filled.
+        session.add(
+            Quota(
+                id=QUOTA_KEY_ID,
+                scope=QuotaScope.API_KEY,
+                api_key_id=DRILL_KEY_ID,
+                limit_type=QuotaLimitType.DAILY_TOKENS,
+                limit_value=Decimal("1"),
+                enabled=True,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        session.add(
+            Quota(
+                id=QUOTA_ORG_ID,
+                scope=QuotaScope.ORGANIZATION,
+                principal_id=ORG_A,
+                limit_type=QuotaLimitType.MONTHLY_AMOUNT,
+                limit_value=Decimal("100000"),
+                enabled=True,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        session.add(
+            Quota(
+                id=QUOTA_MODEL_ID,
+                scope=QuotaScope.API_KEY,
+                api_key_id=DRILL_KEY_ID,
+                model_name=UNUSED_MODEL,
+                limit_type=QuotaLimitType.DAILY_TOKENS,
+                limit_value=Decimal("1"),
+                enabled=True,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        # One fresh request, so the sweep has something to write and therefore
+        # something to advance a counter with.
+        session.add(
+            ModelUsageDetails(
+                id=PHASE_C_REQUEST_ID,
+                user_id=DRILL_USER_ID,
+                user_name="drill-user",
+                model_id=PHASE_C_REQUEST_ID % 100,
+                model_name=PHASE_C_MODEL,
+                api_key_id=DRILL_KEY_ID,
+                api_key_name="drill-key",
+                consumer_principal_id=ORG_A,
+                owner_principal_id=None,
+                date=NOW.date(),
+                prompt_token_count=700,
+                completion_token_count=300,
+                prompt_cached_token_count=0,
+                completed=True,
+                request_id=f"drill-req-{PHASE_C_REQUEST_ID}",
+                started_at=HOUR_AGO,
+                completed_at=HOUR_AGO + timedelta(seconds=5),
+                ttft_ms=320,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.commit()
+
+    invalidate_quota_cache()
+    report = await BillingRater(mode=BillingMode.SHADOW).rate_once()
+    print(f"      计价 sweep：{report.summary()}")
+    if report.quotas_advanced < 1:
+        problems.append(f"sweep 未推进任何配额计数器（quotas_advanced={report.quotas_advanced}）")
+
+    day_start = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = NOW.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        # The oracle's own sums. Same window arithmetic, independently written.
+        expected_tokens = (
+            await session.exec(
+                select(func.sum(LedgerEntry.quantity)).where(
+                    LedgerEntry.deleted_at.is_(None),
+                    LedgerEntry.source_table == "model_usage_details",
+                    LedgerEntry.api_key_id == DRILL_KEY_ID,
+                    LedgerEntry.status != LedgerStatus.VOID.value,
+                    LedgerEntry.sku.in_(
+                        [SKU_TOKEN_PROMPT, SKU_TOKEN_COMPLETION, SKU_TOKEN_CACHED]
+                    ),
+                    LedgerEntry.occurred_at >= day_start,
+                )
+            )
+        ).first() or Decimal(0)
+        expected_spend = (
+            await session.exec(
+                select(func.sum(LedgerEntry.amount)).where(
+                    LedgerEntry.deleted_at.is_(None),
+                    LedgerEntry.principal_id == ORG_A,
+                    LedgerEntry.status != LedgerStatus.VOID.value,
+                    LedgerEntry.direction == LedgerDirection.DEBIT.value,
+                    LedgerEntry.occurred_at >= month_start,
+                )
+            )
+        ).first() or Decimal(0)
+        topups = (
+            await session.exec(
+                select(func.sum(LedgerEntry.amount)).where(
+                    LedgerEntry.deleted_at.is_(None),
+                    LedgerEntry.principal_id == ORG_A,
+                    LedgerEntry.direction == LedgerDirection.CREDIT.value,
+                    LedgerEntry.occurred_at >= month_start,
+                )
+            )
+        ).first() or Decimal(0)
+        rows = {
+            q.id: q for q in (await session.exec(select(Quota))).all()
+        }
+
+    key_used = Decimal(rows[QUOTA_KEY_ID].used)
+    org_used = Decimal(rows[QUOTA_ORG_ID].used)
+    model_used = Decimal(rows[QUOTA_MODEL_ID].used)
+
+    if key_used != Decimal(expected_tokens):
+        problems.append(
+            f"key 日 token 计数器 {fmt(key_used)} ≠ ledger 重算 {fmt(expected_tokens)}"
+        )
+    if org_used != Decimal(expected_spend):
+        problems.append(
+            f"org 月金额计数器 {fmt(org_used)} ≠ ledger DEBIT 重算 {fmt(expected_spend)}"
+        )
+    if Decimal(topups) <= 0:
+        problems.append("应留下一条 CREDIT 充值行，否则本次排除性检查无意义")
+    elif org_used == Decimal(expected_spend) + Decimal(topups):
+        problems.append("充值（CREDIT）被计入了消费上限")
+    if model_used != Decimal(0):
+        problems.append(f"未被使用的模型配额计数器应为 0，实际 {fmt(model_used)}")
+
+    # The gate itself: one caller under all three ceilings.
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        invalidate_quota_cache()
+        try:
+            await check_quota(
+                session,
+                api_key_id=DRILL_KEY_ID,
+                user_id=DRILL_USER_ID,
+                principal_id=ORG_A,
+                model_name=PHASE_C_MODEL,
+            )
+            problems.append("日 token 上限已耗尽，预检却放行了请求")
+            refused_with = None
+        except TooManyRequestsException as e:
+            refused_with = e.status_code
+
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        # Raise the ceiling and the same caller must be admitted: a gate that
+        # only ever refuses proves nothing.
+        rows[QUOTA_KEY_ID].limit_value = Decimal("100000000")
+        session.add(rows[QUOTA_KEY_ID])
+        await session.commit()
+        invalidate_quota_cache()
+        try:
+            await check_quota(
+                session,
+                api_key_id=DRILL_KEY_ID,
+                user_id=DRILL_USER_ID,
+                principal_id=ORG_A,
+                model_name=PHASE_C_MODEL,
+            )
+            admitted = True
+        except TooManyRequestsException as e:
+            admitted = False
+            problems.append(f"提高上限后仍被拒（{e.message}）")
+
+    print("[13] 配额对账：")
+    print(
+        f"      key {DRILL_KEY_ID} 日 token：计数器 {fmt(key_used)} / 上限 1 → "
+        f"预检 {'429 拒绝' if refused_with == 429 else '未拒绝（异常）'}"
+    )
+    print(
+        f"      {ORG_A} 月消费：计数器 {fmt(org_used)}（ledger DEBIT 重算 "
+        f"{fmt(expected_spend)}），同月充值 {fmt(topups)} 未计入"
+    )
+    print(
+        f"      未使用模型 {UNUSED_MODEL}：计数器 {fmt(model_used)}；"
+        f"上限提高后同一调用方放行 = {admitted}"
     )
     return problems
 

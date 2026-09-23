@@ -44,9 +44,10 @@ spending the entry budget.
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from kubernetes_asyncio import client as k8s_client
 from sqlalchemy import or_
@@ -66,6 +67,7 @@ from gpustack.gateway.ext_auth import (
 )
 from gpustack.gateway.utils import ensure_wasm_plugin, route_ingress_names_for_plugins
 from gpustack.schemas.api_keys import ApiKey, PermissionScope
+from gpustack.schemas.billing import Quota, QuotaScope
 from gpustack.schemas.config import GatewayModeEnum
 from gpustack.schemas.model_routes import AccessPolicyEnum, ModelRoute
 from gpustack.schemas.principals import Principal, PrincipalType
@@ -240,6 +242,7 @@ def gateway_key_unrestricted(
     scope: Optional[List[Any]],
     allowed_model_names: Optional[List[str]],
     principal_kind: Any,
+    has_active_quota: bool = False,
 ) -> bool:
     """Whether this key adds nothing to what its user may already reach.
 
@@ -281,13 +284,87 @@ def gateway_key_unrestricted(
     the same class as a revocation -- on a skipped route nothing else asks the
     server whether the key still qualifies -- so it has to ride the same
     immediate flush, which is what the ``ApiKey`` watch already gives it.
+
+    ``has_active_quota`` is a fourth term, and it is here for the same reason the
+    first two are: the flag stands in for everything ``/token-auth`` evaluates,
+    and since WP5.4 that includes the quota ceilings (``server.billing_quota``).
+    A key with a ceiling must ask the server, because the plugin has no counter
+    to consult -- leaving the flag on would not merely delay enforcement, it
+    would skip it entirely on every request the gateway can answer locally,
+    which is most of them. The cost is a round trip per request for exactly the
+    keys an operator put a limit on, which is the trade the positive encoding
+    already made for scope and model restrictions.
     """
+    if has_active_quota:
+        return False
     if principal_kind != PrincipalType.USER:
         return False
     scopes = scope or []
     if PermissionScope.ALL not in scopes and PermissionScope.INFERENCE not in scopes:
         return False
     return not allowed_model_names
+
+
+@dataclass(frozen=True)
+class QuotaSubjects:
+    """Which subjects have at least one enabled billing ceiling.
+
+    Only membership is wanted here, never the limits: the plugin has no counter
+    to consult, so the presence of *any* ceiling on a key, on its user, or on its
+    owning org is enough to make that key ask the server. Ceilings scoped to one
+    model are included too — the ``unrestricted`` bit is per key while the model
+    is per request, so a key limited on one model has to ask on all of them.
+    Over-inclusive in the safe direction: it costs a round trip, never a verdict.
+    """
+
+    api_key_ids: FrozenSet[int]
+    user_ids: FrozenSet[int]
+    principal_ids: FrozenSet[int]
+
+
+_NO_QUOTA_SUBJECTS = QuotaSubjects(frozenset(), frozenset(), frozenset())
+
+
+async def _quota_subjects(session: AsyncSession) -> QuotaSubjects:
+    """Read the ceiling subjects, or nothing at all if billing cannot be read.
+
+    The fallback is the point. This runs inside the reconciler that publishes
+    every credential the gateway can verify, so an exception escaping here would
+    not degrade quota enforcement -- it would stop gateway authentication
+    entirely. A missing or unreadable billing table therefore means "no ceilings
+    to honour", logged, and the tables are built as before.
+    """
+    try:
+        rows = (
+            await session.exec(
+                select(
+                    Quota.scope,
+                    Quota.api_key_id,
+                    Quota.user_id,
+                    Quota.principal_id,
+                ).where(Quota.enabled.is_(True), Quota.deleted_at.is_(None))
+            )
+        ).all()
+    except Exception as e:
+        logger.warning(
+            f"could not read billing quotas while building the gateway auth "
+            f"tables ({e}); publishing keys without quota restrictions"
+        )
+        return _NO_QUOTA_SUBJECTS
+
+    api_key_ids, user_ids, principal_ids = set(), set(), set()
+    for scope, api_key_id, user_id, principal_id in rows:
+        if scope == QuotaScope.API_KEY.value and api_key_id is not None:
+            api_key_ids.add(api_key_id)
+        elif scope == QuotaScope.USER.value and user_id is not None:
+            user_ids.add(user_id)
+        elif scope == QuotaScope.ORGANIZATION.value and principal_id is not None:
+            principal_ids.add(principal_id)
+    return QuotaSubjects(
+        api_key_ids=frozenset(api_key_ids),
+        user_ids=frozenset(user_ids),
+        principal_ids=frozenset(principal_ids),
+    )
 
 
 async def build_local_auth_tables(
@@ -365,6 +442,7 @@ async def build_local_auth_tables(
     every key in the deployment, which is the exact opposite.
     """
     now = datetime.now(timezone.utc)
+    quota_subjects = await _quota_subjects(session)
     # Columns rather than entities. This runs on a timer over every key in the
     # deployment and the hydration is synchronous, so building 10k ApiKey +
     # Principal instances would block the event loop for ~110 ms a pass against
@@ -387,6 +465,10 @@ async def build_local_auth_tables(
             ApiKey.is_custom,
             ApiKey.scope,
             ApiKey.allowed_model_names,
+            # Selected for the quota test below, not for the entry: an ORG-scoped
+            # ceiling binds a key through its owner, which is a column this build
+            # had no other reason to read.
+            ApiKey.owner_principal_id,
             Principal.kind,
         )
         .join(Principal, Principal.id == ApiKey.user_id)
@@ -438,6 +520,7 @@ async def build_local_auth_tables(
         is_custom,
         scope,
         allowed_model_names,
+        owner_principal_id,
         principal_kind,
     ) in rows:
         publishable = gateway_digest_publishable(is_custom, digest)
@@ -468,7 +551,16 @@ async def build_local_auth_tables(
         # Emitted only when true, never as ``false``. Absent already means
         # false to the plugin, so writing the negative case would spend ~20
         # bytes of the shared budget per entry to say what silence says.
-        if gateway_key_unrestricted(scope, allowed_model_names, principal_kind):
+        if gateway_key_unrestricted(
+            scope,
+            allowed_model_names,
+            principal_kind,
+            has_active_quota=(
+                key_id in quota_subjects.api_key_ids
+                or user_id in quota_subjects.user_ids
+                or owner_principal_id in quota_subjects.principal_ids
+            ),
+        ):
             entry["unrestricted"] = True
         if publishable:
             gateway_digest_value = gateway_digest(digest)

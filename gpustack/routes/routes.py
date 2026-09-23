@@ -390,13 +390,19 @@ admin_routers = [
         "prefix": "/source-probe",
         "tags": ["Source Probe"],
     },
-    # Billing administration — the price book. Platform-scoped rather than
-    # org-owned: one price truth applies to every tenant, so there is no owner
-    # to scope by. Sibling billing resources (wallets, invoices, quotas) mount
-    # under the same /billing prefix as they land.
+    # Billing administration — the price book and quota ceilings. Platform-scoped
+    # rather than org-owned: one price truth applies to every tenant, and a
+    # ceiling is granted by an operator — a tenant that could edit its own limit
+    # has no limit. Sibling billing resources (wallets, invoices) mount under the
+    # same /billing prefix as they land.
     {
         "router": billing.router,
         "prefix": "/billing/price-book",
+        "tags": ["Billing"],
+    },
+    {
+        "router": billing.quota_router,
+        "prefix": "/billing/quotas",
         "tags": ["Billing"],
     },
 ]

@@ -516,13 +516,82 @@ class InvoiceItem(SQLModel, BaseModelMixin, table=True):
 # ---------------------------------------------------------------------------
 
 
-class Quota(SQLModel, BaseModelMixin, table=True):
+class QuotaBase(SQLModel):
+    """Editable surface of a quota row.
+
+    A limit is a triple of (subject, model, window): who it binds, what it
+    covers, and how much of it may be consumed per window. ``model_name`` NULL
+    means every model, which is what makes "this org may spend X a month"
+    expressible without one row per model.
+
+    Exactly one subject column is set and it must agree with ``scope`` — a row
+    claiming API_KEY scope while carrying only a ``user_id`` would match nobody
+    (the gate looks up by the column its scope names) and silently limit nothing,
+    which is worse than an error at the API boundary.
+    """
+
+    scope: QuotaScope = Field(sa_column=Column(String(16), nullable=False))
+    # Exactly one of these is set, matching ``scope``; the others stay NULL.
+    # NOTE: SQL treats NULLs as distinct, so ``uq_quota_scope_limit`` only fully
+    # guards scopes whose columns are all non-NULL — ``billing_quota.assert_no_duplicate``
+    # rejects a duplicate (scope, subject, model, limit_type) whose subject
+    # columns are NULL rather than relying on the constraint alone.
+    principal_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    user_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    api_key_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    # NULL = all models.
+    model_name: Optional[str] = Field(default=None, max_length=255)
+    limit_type: QuotaLimitType = Field(sa_column=Column(String(32), nullable=False))
+    # Tokens for DAILY_TOKENS, currency for the *_AMOUNT types. One column
+    # rather than two because a row's ``limit_type`` decides the unit, exactly
+    # as ``PriceBookEntry.unit`` is derived from its sku.
+    limit_value: Decimal = Field(sa_column=_money_column(nullable=False))
+    enabled: bool = Field(default=True)
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    @model_validator(mode="after")
+    def _validate_subject(self):
+        expected = {
+            QuotaScope.ORGANIZATION: "principal_id",
+            QuotaScope.USER: "user_id",
+            QuotaScope.API_KEY: "api_key_id",
+        }[QuotaScope(self.scope)]
+        present = [
+            name
+            for name in ("principal_id", "user_id", "api_key_id")
+            if getattr(self, name) is not None
+        ]
+        if present != [expected]:
+            raise ValueError(
+                f"scope {str(self.scope)!r} requires exactly {expected} to be set, "
+                f"got {present or 'none'}"
+            )
+        if self.limit_value <= 0:
+            raise ValueError("limit_value must be greater than zero")
+        return self
+
+
+class QuotaUpdate(QuotaBase):
+    """PUT payload: the whole editable surface.
+
+    ``window_start`` / ``used`` are deliberately absent — they are the rater's
+    state, and an API that let a caller zero them would let a tenant reset its
+    own counter by editing the row.
+    """
+
+
+class QuotaCreate(QuotaUpdate):
+    pass
+
+
+class Quota(QuotaBase, BaseModelMixin, table=True):
     """A spend/usage ceiling at organization, user or api-key scope.
 
-    Checked before a request is admitted (QuotaGate) and after rating to decide
-    whether the scope has exhausted its window. ``window_start`` / ``used`` are
-    advanced by the rater, so the hot path reads one row instead of summing the
-    ledger.
+    Checked before a request is admitted (``server.billing_quota.check_quota``)
+    and advanced after rating, so the hot path reads one row instead of summing
+    the ledger. ``window_start`` marks the window ``used`` counts, which is what
+    lets a daily counter be reset by comparison rather than by a cron job.
     """
 
     __tablename__: ClassVar[str] = "billing_quota"
@@ -539,20 +608,6 @@ class Quota(SQLModel, BaseModelMixin, table=True):
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    scope: QuotaScope = Field(sa_column=Column(String(16), nullable=False))
-    # Exactly one of these is set, matching ``scope``; the others stay NULL.
-    # NOTE: SQL treats NULLs as distinct, so ``uq_quota_scope_limit`` only fully
-    # guards scopes whose columns are all non-NULL — the service layer (WP5.4)
-    # must reject a duplicate (scope, subject, limit_type) whose subject columns
-    # are NULL rather than relying on the constraint alone.
-    principal_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
-    user_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
-    api_key_id: Optional[int] = Field(default=None, sa_column=Column(Integer))
-    # NULL = all models.
-    model_name: Optional[str] = Field(default=None, max_length=255)
-    limit_type: QuotaLimitType = Field(sa_column=Column(String(32), nullable=False))
-    limit_value: Decimal = Field(sa_column=_money_column(nullable=False))
-    enabled: bool = Field(default=True)
     # Rolling window state, advanced by the rater.
     window_start: Optional[datetime] = Field(
         default=None, sa_column=Column(UTCDateTime(), nullable=True)
@@ -562,7 +617,29 @@ class Quota(SQLModel, BaseModelMixin, table=True):
         sa_column=_money_column(nullable=False, default=Decimal(0), server_default="0"),
     )
 
-    model_config = ConfigDict(protected_namespaces=())
+
+class QuotaPublic(QuotaBase):
+    id: int
+    # Read-only window state, so a tenant can see how much of the ceiling is
+    # left rather than only being told "429".
+    window_start: Optional[datetime] = None
+    used: Decimal = Decimal(0)
+    created_at: datetime
+    updated_at: datetime
+
+
+class QuotaListParams(ListParams):
+    sortable_fields: ClassVar[List[str]] = [
+        "id",
+        "scope",
+        "limit_type",
+        "limit_value",
+        "created_at",
+        "updated_at",
+    ]
+
+
+QuotasPublic = PaginatedList[QuotaPublic]
 
 
 # ---------------------------------------------------------------------------

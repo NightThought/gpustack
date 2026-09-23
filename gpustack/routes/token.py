@@ -29,6 +29,7 @@ from gpustack.api.auth import (
 )
 from gpustack.security import JWTManager, AUTH_CACHE_HEADER
 from gpustack.server.billing_enforcement import assert_billing_active
+from gpustack.server.billing_quota import check_quota
 from gpustack.server.gateway_auth_reconciler import gateway_ref_indexable
 
 logger = logging.getLogger(__name__)
@@ -237,6 +238,18 @@ async def server_auth(
         # 403 would not.
         await assert_billing_active(
             session, api_key=api_key, user=user, model_name=model_name
+        )
+        # Quota ceilings, after suspension and for a different reason: 402 above
+        # means "the wallet is empty", 429 here means "this window's allowance is
+        # spent". Both refuse, and a client has to be able to tell them apart —
+        # topping up does nothing for a daily token cap, and waiting for the
+        # window does nothing for an empty wallet.
+        await check_quota(
+            session,
+            api_key_id=getattr(api_key, "id", None),
+            user_id=user.id,
+            principal_id=getattr(api_key, "owner_principal_id", None) or user.id,
+            model_name=model_name,
         )
     # No ``token`` claim: the upstream credential is held statically by
     # ai-proxy's ``apiTokens`` and no longer travels per request.

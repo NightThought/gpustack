@@ -36,6 +36,9 @@ from gpustack.schemas.billing import (
     LedgerEntry,
     LedgerStatus,
     PriceBookEntry,
+    Quota,
+    QuotaLimitType,
+    QuotaScope,
     SettleMode,
     Wallet,
 )
@@ -51,6 +54,7 @@ from gpustack.schemas.metered_usage import (
 from gpustack.schemas.model_usage_details import ModelUsageDetails
 from gpustack.server import billing_rater
 from gpustack.server.billing_pricing import invalidate_price_cache
+from gpustack.server.billing_quota import invalidate_quota_cache
 from gpustack.server.billing_rater import (
     SKU_OUT_OF_SCOPE,
     BillingMode,
@@ -59,6 +63,7 @@ from gpustack.server.billing_rater import (
 )
 
 NOW = datetime(2026, 9, 22, 12, 0, 0)
+DAY_START = datetime(2026, 9, 22, 0, 0, 0)
 T0 = datetime(2026, 9, 1, 0, 0, 0)
 ORG = 10
 USER = 7
@@ -159,11 +164,16 @@ async def engine():
             ModelUsageDetails,
             MeteredUsage,
             Wallet,
+            # The sweep advances quota counters as well as writing ledger rows,
+            # so the table has to exist for the sweep to complete quietly.
+            Quota,
         ):
             await conn.run_sync(model.__table__.create)
     invalidate_price_cache()
+    invalidate_quota_cache()
     yield engine
     invalidate_price_cache()
+    invalidate_quota_cache()
     await engine.dispose()
 
 
@@ -671,3 +681,111 @@ async def test_rated_at_uses_the_request_completion_time(engine, session_factory
 
     entry = (await _ledger(engine, sku=SKU_TOKEN_PROMPT))[0]
     assert entry.occurred_at.replace(tzinfo=None) == late
+
+
+# ---------------------------------------------------------------------------
+# Quota counters — the sweep advances them with the rows it writes
+# ---------------------------------------------------------------------------
+
+
+def _quota(id_=1, *, api_key_id=3, limit_value="100000", window_start=None, used="0"):
+    return Quota(
+        id=id_,
+        scope=QuotaScope.API_KEY,
+        api_key_id=api_key_id,
+        limit_type=QuotaLimitType.DAILY_TOKENS,
+        limit_value=Decimal(limit_value),
+        enabled=True,
+        window_start=window_start or DAY_START,
+        used=Decimal(used),
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+
+async def _quota_row(engine, id_=1):
+    async with AsyncSession(engine) as s:
+        return (await s.exec(select(Quota).where(Quota.id == id_))).first()
+
+
+@pytest.mark.asyncio
+async def test_a_sweep_advances_the_counter_for_the_rows_it_wrote(
+    engine, session_factory
+):
+    """Ledger and ceiling move together, in the sweep's one transaction.
+
+    A counter advanced without its rows would not be reproducible from the
+    ledger, and rows written without advancing a counter would leave the ceiling
+    blind to them until the next window rolled.
+    """
+    await _seed(
+        session_factory,
+        _price(1, SKU_TOKEN_PROMPT, "0.002"),
+        _price(2, SKU_TOKEN_COMPLETION, "0.006"),
+        _quota(),
+        _detail(100, prompt=1000, completion=500),
+    )
+
+    report = await BillingRater(mode=BillingMode.SHADOW).rate_once()
+
+    assert report.quotas_advanced == 1
+    assert (await _quota_row(engine)).used == Decimal("1500")
+
+
+@pytest.mark.asyncio
+async def test_a_second_sweep_does_not_count_the_same_request_twice(
+    engine, session_factory
+):
+    """The rater re-reads its sources every tick; a ceiling that advanced for a
+    row it had already written would bite early and look like a mystery limit."""
+    await _seed(
+        session_factory,
+        _price(1, SKU_TOKEN_PROMPT, "0.002"),
+        _price(2, SKU_TOKEN_COMPLETION, "0.006"),
+        _quota(),
+        _detail(100, prompt=1000, completion=500),
+    )
+
+    await BillingRater(mode=BillingMode.SHADOW).rate_once()
+    second = await BillingRater(mode=BillingMode.SHADOW).rate_once()
+
+    assert second.quotas_advanced == 0
+    assert (await _quota_row(engine)).used == Decimal("1500")
+
+
+@pytest.mark.asyncio
+async def test_unpriced_usage_does_not_advance_a_counter(engine, session_factory):
+    """A VOID placeholder is not consumption; counting it would charge a ceiling
+    for usage that has not been billed yet."""
+    await _seed(
+        session_factory,
+        _quota(),
+        _detail(100, prompt=5000, completion=500),
+    )
+
+    report = await BillingRater(mode=BillingMode.SHADOW).rate_once()
+
+    assert report.token_unpriced == 1
+    assert report.quotas_advanced == 0
+    assert (await _quota_row(engine)).used == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_a_promoted_placeholder_starts_counting(engine, session_factory):
+    """When the missing price appears, the row it unblocks is real usage and the
+    ceiling has to see it — the promotion is the moment it becomes billable."""
+    await _seed(
+        session_factory,
+        _price(2, SKU_TOKEN_COMPLETION, "0.006"),
+        _quota(),
+        _detail(100, prompt=1000, completion=500),
+    )
+    first = await BillingRater(mode=BillingMode.SHADOW).rate_once()
+    assert first.token_unpriced == 1
+    assert (await _quota_row(engine)).used == Decimal("0")
+
+    await _seed(session_factory, _price(1, SKU_TOKEN_PROMPT, "0.002"))
+    second = await BillingRater(mode=BillingMode.SHADOW).rate_once()
+
+    assert second.promoted == 2
+    assert (await _quota_row(engine)).used == Decimal("1500")
